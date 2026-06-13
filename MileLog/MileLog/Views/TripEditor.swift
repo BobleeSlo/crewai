@@ -63,7 +63,7 @@ struct TripEditor: View {
                 }
             }
             if isNew {
-                ToolbarItem(placement: .cancelAction) {
+                ToolbarItem(placement: .cancellationAction) {
                     Button("Discard", role: .destructive) { dismiss() }
                 }
             }

@@ -83,7 +83,7 @@ struct VehicleEditView: View {
                     }
                     .disabled(vehicle.name.trimmingCharacters(in: .whitespaces).isEmpty)
                 }
-                ToolbarItem(placement: .cancelAction) {
+                ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
                 }
             }
