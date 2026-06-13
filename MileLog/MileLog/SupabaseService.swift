@@ -1,4 +1,5 @@
 import Foundation
+import Combine
 import Supabase
 
 /// Thin wrapper around the Supabase Swift SDK: auth state + simple CRUD
