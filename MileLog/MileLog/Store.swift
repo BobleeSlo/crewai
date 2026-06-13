@@ -1,5 +1,6 @@
 import Foundation
 import Combine
+import SwiftUI   // for Array.remove(atOffsets:) used by ForEach.onDelete bridging
 
 /// Local-first data store. Persists vehicles, trips and settings as JSON in the
 /// app's Documents directory. Cloud (Supabase) sync is layered on top of this
