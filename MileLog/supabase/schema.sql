@@ -1,0 +1,199 @@
+-- ============================================================================
+-- MileLog — Supabase schema (company-car logbook + business mileage)
+-- Run this in the Supabase SQL Editor (one block at a time, or all at once).
+-- ============================================================================
+
+-- ---------- TABLES ----------
+
+create table if not exists vehicles (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  name text not null,
+  license_plate text not null default '',
+  vehicle_type text not null check (vehicle_type in ('own','company')),
+  default_purpose text default 'business' check (default_purpose in ('business','private','commute')),
+  current_odometer_km integer default 0,
+  is_active boolean default true,
+  created_at timestamptz default now()
+);
+
+create table if not exists customers (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  name text not null,
+  contact_person text,
+  address text,
+  city text,
+  lat double precision,
+  lng double precision,
+  notes text,
+  created_at timestamptz default now()
+);
+
+create table if not exists trips (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  vehicle_id uuid not null references vehicles(id),
+  sequential_number integer,
+  trip_type text not null default 'business' check (trip_type in ('business','private','commute')),
+  customer_id uuid references customers(id),
+  purpose text,
+  contact_met text,
+  started_at timestamptz not null,
+  ended_at timestamptz,
+  start_address text,
+  start_lat double precision,
+  start_lng double precision,
+  end_address text,
+  end_lat double precision,
+  end_lng double precision,
+  intermediate_stops jsonb default '[]'::jsonb,
+  odometer_start_km integer,
+  odometer_end_km integer,
+  distance_km numeric(8,2),
+  reimbursement_rate_eur numeric(5,3) default 0.430,
+  reimbursement_amount_eur numeric(10,2),
+  notes text,
+  is_locked boolean default false,
+  created_at timestamptz default now(),
+  updated_at timestamptz default now()
+);
+
+create table if not exists trip_points (
+  id bigserial primary key,
+  trip_id uuid not null references trips(id) on delete cascade,
+  recorded_at timestamptz not null,
+  lat double precision not null,
+  lng double precision not null,
+  speed_kmh real,
+  accuracy_m real
+);
+
+create table if not exists receipts (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  trip_id uuid references trips(id) on delete cascade,
+  receipt_type text not null check (receipt_type in ('fuel','parking','toll','other')),
+  amount_eur numeric(10,2),
+  vendor text,
+  photo_url text,
+  receipt_date date,
+  notes text,
+  created_at timestamptz default now()
+);
+
+create table if not exists trip_audit_log (
+  id bigserial primary key,
+  trip_id uuid not null,
+  user_id uuid not null,
+  changed_at timestamptz default now(),
+  field_name text,
+  old_value text,
+  new_value text
+);
+
+create index if not exists trips_user_started_idx on trips(user_id, started_at);
+create index if not exists trip_points_trip_idx on trip_points(trip_id);
+create index if not exists receipts_trip_idx on receipts(trip_id);
+
+-- ---------- TRIGGERS ----------
+
+create or replace function touch_updated_at() returns trigger as $$
+begin new.updated_at = now(); return new; end;
+$$ language plpgsql;
+
+drop trigger if exists trips_touch on trips;
+create trigger trips_touch before update on trips
+  for each row execute function touch_updated_at();
+
+-- Per-user sequential number + distance + reimbursement on insert.
+create or replace function trip_before_insert() returns trigger as $$
+begin
+  if new.sequential_number is null then
+    select coalesce(max(sequential_number), 0) + 1 into new.sequential_number
+      from trips where user_id = new.user_id;
+  end if;
+  if new.odometer_start_km is not null and new.odometer_end_km is not null then
+    new.distance_km = new.odometer_end_km - new.odometer_start_km;
+  end if;
+  if new.distance_km is not null and new.trip_type = 'business' then
+    new.reimbursement_amount_eur =
+      round(new.distance_km * coalesce(new.reimbursement_rate_eur, 0.430), 2);
+  end if;
+  return new;
+end;
+$$ language plpgsql;
+
+drop trigger if exists trips_bi on trips;
+create trigger trips_bi before insert on trips
+  for each row execute function trip_before_insert();
+
+-- Keep the vehicle's odometer in sync with the latest trip.
+create or replace function trip_after_write() returns trigger as $$
+begin
+  if new.odometer_end_km is not null then
+    update vehicles set current_odometer_km = new.odometer_end_km
+      where id = new.vehicle_id and current_odometer_km < new.odometer_end_km;
+  end if;
+  return new;
+end;
+$$ language plpgsql;
+
+drop trigger if exists trips_aw on trips;
+create trigger trips_aw after insert or update on trips
+  for each row execute function trip_after_write();
+
+-- Once a trip is locked, mileage / date / vehicle become immutable.
+create or replace function trip_lock_guard() returns trigger as $$
+begin
+  if old.is_locked then
+    if new.started_at        is distinct from old.started_at
+       or new.odometer_start_km is distinct from old.odometer_start_km
+       or new.odometer_end_km   is distinct from old.odometer_end_km
+       or new.distance_km       is distinct from old.distance_km
+       or new.vehicle_id        is distinct from old.vehicle_id then
+      raise exception 'Trip is locked; mileage/date/vehicle cannot be changed';
+    end if;
+  end if;
+  return new;
+end;
+$$ language plpgsql;
+
+drop trigger if exists trips_lock on trips;
+create trigger trips_lock before update on trips
+  for each row execute function trip_lock_guard();
+
+-- ---------- ROW-LEVEL SECURITY ----------
+
+alter table vehicles       enable row level security;
+alter table customers      enable row level security;
+alter table trips          enable row level security;
+alter table trip_points    enable row level security;
+alter table receipts       enable row level security;
+alter table trip_audit_log enable row level security;
+
+drop policy if exists own_vehicles on vehicles;
+create policy own_vehicles on vehicles
+  for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
+drop policy if exists own_customers on customers;
+create policy own_customers on customers
+  for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
+drop policy if exists own_trips on trips;
+create policy own_trips on trips
+  for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
+drop policy if exists own_receipts on receipts;
+create policy own_receipts on receipts
+  for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
+drop policy if exists own_points on trip_points;
+create policy own_points on trip_points
+  for all
+  using (exists (select 1 from trips t where t.id = trip_points.trip_id and t.user_id = auth.uid()))
+  with check (exists (select 1 from trips t where t.id = trip_points.trip_id and t.user_id = auth.uid()));
+
+drop policy if exists own_audit on trip_audit_log;
+create policy own_audit on trip_audit_log
+  for select using (auth.uid() = user_id);

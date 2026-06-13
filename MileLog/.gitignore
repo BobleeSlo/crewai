@@ -1,0 +1,15 @@
+# Xcode / Swift
+build/
+DerivedData/
+*.xcuserstate
+*.xcworkspace/xcuserdata/
+*.xcodeproj/xcuserdata/
+*.xcodeproj/project.xcworkspace/xcuserdata/
+.swiftpm/
+Package.resolved
+
+# macOS
+.DS_Store
+
+# Local secrets (do NOT commit your Supabase keys in a private build)
+SupabaseConfig.swift
