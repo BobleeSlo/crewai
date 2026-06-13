@@ -39,6 +39,45 @@ struct Vehicle: Identifiable, Codable, Hashable {
     var name: String
     var licensePlate: String
     var type: VehicleType
+
+    // Phase 3a additions — defaults make older saved JSON forward-compatible.
+    var bluetoothName: String = ""
+    var bluetoothUID: String = ""
+    var defaultTripType: TripType = .business
+
+    init(
+        id: UUID = UUID(),
+        name: String,
+        licensePlate: String,
+        type: VehicleType,
+        bluetoothName: String = "",
+        bluetoothUID: String = "",
+        defaultTripType: TripType = .business
+    ) {
+        self.id = id
+        self.name = name
+        self.licensePlate = licensePlate
+        self.type = type
+        self.bluetoothName = bluetoothName
+        self.bluetoothUID = bluetoothUID
+        self.defaultTripType = defaultTripType
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id, name, licensePlate, type
+        case bluetoothName, bluetoothUID, defaultTripType
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+        name = try c.decode(String.self, forKey: .name)
+        licensePlate = try c.decode(String.self, forKey: .licensePlate)
+        type = try c.decode(VehicleType.self, forKey: .type)
+        bluetoothName = try c.decodeIfPresent(String.self, forKey: .bluetoothName) ?? ""
+        bluetoothUID = try c.decodeIfPresent(String.self, forKey: .bluetoothUID) ?? ""
+        defaultTripType = try c.decodeIfPresent(TripType.self, forKey: .defaultTripType) ?? .business
+    }
 }
 
 // MARK: - Trip (one logbook entry)
@@ -60,6 +99,68 @@ struct Trip: Identifiable, Codable, Hashable {
     /// Tax-free reimbursement only applies to business kilometres.
     func reimbursement(rate: Double) -> Double {
         type == .business ? distanceKm * rate : 0
+    }
+}
+
+// MARK: - Per-user settings (persisted locally + synced to Supabase)
+
+struct UserSettings: Codable, Equatable {
+    var reimbursementRate: Double = 0.43
+
+    var homeAddress: String = ""
+    var homeLat: Double? = nil
+    var homeLng: Double? = nil
+
+    var workAddress: String = ""
+    var workLat: Double? = nil
+    var workLng: Double? = nil
+
+    var autoDetectEnabled: Bool = false
+    var stationaryTimeoutMinutes: Int = 5
+
+    var hasHome: Bool { homeLat != nil && homeLng != nil }
+    var hasWork: Bool { workLat != nil && workLng != nil }
+
+    init(
+        reimbursementRate: Double = 0.43,
+        homeAddress: String = "",
+        homeLat: Double? = nil,
+        homeLng: Double? = nil,
+        workAddress: String = "",
+        workLat: Double? = nil,
+        workLng: Double? = nil,
+        autoDetectEnabled: Bool = false,
+        stationaryTimeoutMinutes: Int = 5
+    ) {
+        self.reimbursementRate = reimbursementRate
+        self.homeAddress = homeAddress
+        self.homeLat = homeLat
+        self.homeLng = homeLng
+        self.workAddress = workAddress
+        self.workLat = workLat
+        self.workLng = workLng
+        self.autoDetectEnabled = autoDetectEnabled
+        self.stationaryTimeoutMinutes = stationaryTimeoutMinutes
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case reimbursementRate
+        case homeAddress, homeLat, homeLng
+        case workAddress, workLat, workLng
+        case autoDetectEnabled, stationaryTimeoutMinutes
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        reimbursementRate = try c.decodeIfPresent(Double.self, forKey: .reimbursementRate) ?? 0.43
+        homeAddress = try c.decodeIfPresent(String.self, forKey: .homeAddress) ?? ""
+        homeLat = try c.decodeIfPresent(Double.self, forKey: .homeLat)
+        homeLng = try c.decodeIfPresent(Double.self, forKey: .homeLng)
+        workAddress = try c.decodeIfPresent(String.self, forKey: .workAddress) ?? ""
+        workLat = try c.decodeIfPresent(Double.self, forKey: .workLat)
+        workLng = try c.decodeIfPresent(Double.self, forKey: .workLng)
+        autoDetectEnabled = try c.decodeIfPresent(Bool.self, forKey: .autoDetectEnabled) ?? false
+        stationaryTimeoutMinutes = try c.decodeIfPresent(Int.self, forKey: .stationaryTimeoutMinutes) ?? 5
     }
 }
 

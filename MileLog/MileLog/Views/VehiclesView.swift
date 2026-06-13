@@ -57,17 +57,74 @@ struct VehicleEditView: View {
     @State var vehicle: Vehicle
     let isNew: Bool
 
+    @State private var pairingMessage: String?
+
     var body: some View {
         NavigationStack {
             Form {
-                TextField("Name (e.g. Škoda Octavia)", text: $vehicle.name)
-                TextField("License plate", text: $vehicle.licensePlate)
-                Picker("Type", selection: $vehicle.type) {
-                    ForEach(VehicleType.allCases) { type in
-                        Text(type.label).tag(type)
+                Section("Basics") {
+                    TextField("Name (e.g. Škoda Octavia)", text: $vehicle.name)
+                    TextField("License plate", text: $vehicle.licensePlate)
+                    Picker("Type", selection: $vehicle.type) {
+                        ForEach(VehicleType.allCases) { type in
+                            Text(type.label).tag(type)
+                        }
                     }
+                    .pickerStyle(.segmented)
                 }
-                .pickerStyle(.segmented)
+
+                Section("Default trip type") {
+                    Picker("Default", selection: $vehicle.defaultTripType) {
+                        ForEach(TripType.allCases) { type in
+                            Text(type.label).tag(type)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    Text("Used as the default classification when this vehicle's trip is auto-detected.")
+                        .font(.footnote)
+                        .foregroundColor(.secondary)
+                }
+
+                Section("Car Bluetooth") {
+                    if vehicle.bluetoothName.isEmpty {
+                        Text("Not paired yet")
+                            .foregroundColor(.secondary)
+                    } else {
+                        LabeledContent("Device", value: vehicle.bluetoothName)
+                        if !vehicle.bluetoothUID.isEmpty {
+                            LabeledContent("ID") {
+                                Text(vehicle.bluetoothUID)
+                                    .font(.caption2.monospaced())
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
+                            }
+                        }
+                    }
+
+                    Button {
+                        pairWithCurrentBluetooth()
+                    } label: {
+                        Label("Pair with current Bluetooth connection", systemImage: "antenna.radiowaves.left.and.right")
+                    }
+
+                    if !vehicle.bluetoothName.isEmpty {
+                        Button("Clear pairing", role: .destructive) {
+                            vehicle.bluetoothName = ""
+                            vehicle.bluetoothUID = ""
+                            pairingMessage = nil
+                        }
+                    }
+
+                    if let pairingMessage {
+                        Text(pairingMessage)
+                            .font(.footnote)
+                            .foregroundColor(pairingMessage.hasPrefix("Paired") ? .green : .orange)
+                    }
+
+                    Text("Sit in the car with the engine on and your phone connected to the car audio. Then tap the button above.")
+                        .font(.footnote)
+                        .foregroundColor(.secondary)
+                }
             }
             .navigationTitle(isNew ? "Add vehicle" : "Edit vehicle")
             .navigationBarTitleDisplayMode(.inline)
@@ -87,6 +144,16 @@ struct VehicleEditView: View {
                     Button("Cancel") { dismiss() }
                 }
             }
+        }
+    }
+
+    private func pairWithCurrentBluetooth() {
+        if let device = AudioRoute.currentBluetoothOutput() {
+            vehicle.bluetoothName = device.name
+            vehicle.bluetoothUID = device.uid
+            pairingMessage = "Paired with \(device.name)"
+        } else {
+            pairingMessage = "No Bluetooth audio device detected. Make sure your iPhone is currently connected to the car's audio."
         }
     }
 }

@@ -96,11 +96,22 @@ for free with any Apple ID.
 - Row-Level Security keeps every row scoped to its owner
 - Push-on-save + pull-on-launch; local JSON acts as offline cache
 
-**Phase 3 — Automatic trip detection** *(planned)*
+**Phase 3a — Foundations for auto-detection** ✅
+- Per-vehicle Bluetooth pairing: tap **"Pair with current Bluetooth
+  connection"** in Vehicles → Edit, while your phone is connected to the car
+  audio. The car's BT name + UID are stored against that vehicle.
+- Per-vehicle default trip type (business / commute / private).
+- **Settings → Home & Work** addresses (auto-geocoded to lat/lng), plus an
+  auto-detect toggle and a stationary-timeout stepper.
+- Settings synced to a new `user_settings` table (one row per user, RLS-scoped).
+- Run `supabase/migration-002-phase3a.sql` in the SQL Editor once.
+
+**Phase 3b — Automatic trip detection** *(in progress)*
 - Significant-location + visit monitoring and `CMMotionActivityManager` driving
-  detection to start/stop trips automatically and surface a "Classify your trip"
-  notification on arrival. Requires the *Location updates* background mode and
-  *Always* location permission.
+  detection to start/stop trips automatically; on trip-end, send a
+  "Classify your trip" notification that uses the BT pairing + home/work rules
+  to pre-fill the right defaults. Requires the *Location updates* background
+  mode and *Always* location permission.
 
 **Phase 4 — Compliance & reporting** *(planned)*
 - GPS track storage (`trip_points`) for auto-detected trips

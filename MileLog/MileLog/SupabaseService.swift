@@ -87,6 +87,19 @@ final class SupabaseService: ObservableObject {
         try await client.from("trips").delete().eq("id", value: id).execute()
     }
 
+    // MARK: - User settings
+
+    func pushSettings(_ settings: UserSettings) async throws {
+        let dto = UserSettingsDTO(from: settings, userId: try await currentUserId())
+        try await client.from("user_settings").upsert(dto).execute()
+    }
+
+    func pullSettings() async throws -> UserSettings? {
+        let dtos: [UserSettingsDTO] = try await client
+            .from("user_settings").select().limit(1).execute().value
+        return dtos.first?.toSettings()
+    }
+
     // MARK: - Helpers
 
     private func currentUserId() async throws -> UUID {

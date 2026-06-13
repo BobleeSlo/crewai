@@ -9,6 +9,9 @@ struct VehicleDTO: Codable {
     var name: String
     var license_plate: String
     var vehicle_type: String
+    var bluetooth_name: String?
+    var bluetooth_uid: String?
+    var default_trip_type: String?
 
     init(from v: Vehicle, userId: UUID) {
         id = v.id
@@ -16,6 +19,9 @@ struct VehicleDTO: Codable {
         name = v.name
         license_plate = v.licensePlate
         vehicle_type = v.type.rawValue
+        bluetooth_name = v.bluetoothName.isEmpty ? nil : v.bluetoothName
+        bluetooth_uid = v.bluetoothUID.isEmpty ? nil : v.bluetoothUID
+        default_trip_type = v.defaultTripType.rawValue
     }
 
     func toVehicle() -> Vehicle {
@@ -23,7 +29,10 @@ struct VehicleDTO: Codable {
             id: id,
             name: name,
             licensePlate: license_plate,
-            type: VehicleType(rawValue: vehicle_type) ?? .own
+            type: VehicleType(rawValue: vehicle_type) ?? .own,
+            bluetoothName: bluetooth_name ?? "",
+            bluetoothUID: bluetooth_uid ?? "",
+            defaultTripType: TripType(rawValue: default_trip_type ?? "") ?? .business
         )
     }
 }
@@ -73,6 +82,46 @@ struct TripDTO: Codable {
             distanceKm: distance_km,
             notes: notes ?? "",
             isLocked: is_locked
+        )
+    }
+}
+
+struct UserSettingsDTO: Codable {
+    var user_id: UUID
+    var reimbursement_rate: Double
+    var home_address: String
+    var home_lat: Double?
+    var home_lng: Double?
+    var work_address: String
+    var work_lat: Double?
+    var work_lng: Double?
+    var auto_detect_enabled: Bool
+    var stationary_timeout_minutes: Int
+
+    init(from s: UserSettings, userId: UUID) {
+        user_id = userId
+        reimbursement_rate = s.reimbursementRate
+        home_address = s.homeAddress
+        home_lat = s.homeLat
+        home_lng = s.homeLng
+        work_address = s.workAddress
+        work_lat = s.workLat
+        work_lng = s.workLng
+        auto_detect_enabled = s.autoDetectEnabled
+        stationary_timeout_minutes = s.stationaryTimeoutMinutes
+    }
+
+    func toSettings() -> UserSettings {
+        UserSettings(
+            reimbursementRate: reimbursement_rate,
+            homeAddress: home_address,
+            homeLat: home_lat,
+            homeLng: home_lng,
+            workAddress: work_address,
+            workLat: work_lat,
+            workLng: work_lng,
+            autoDetectEnabled: auto_detect_enabled,
+            stationaryTimeoutMinutes: stationary_timeout_minutes
         )
     }
 }

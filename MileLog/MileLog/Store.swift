@@ -9,7 +9,13 @@ import SwiftUI   // for Array.remove(atOffsets:) used by ForEach.onDelete bridgi
 final class Store: ObservableObject {
     @Published var vehicles: [Vehicle] = []
     @Published var trips: [Trip] = []
-    @Published var reimbursementRate: Double = 0.43   // €/km — EDIT to the current rate, see README
+    @Published var settings = UserSettings()
+
+    /// Convenience accessor kept for the existing UI/CSV code.
+    var reimbursementRate: Double {
+        get { settings.reimbursementRate }
+        set { settings.reimbursementRate = newValue; save() }
+    }
 
     /// Set after the user signs in; when present, mutations are mirrored to Supabase.
     private weak var supabase: SupabaseService?
@@ -17,8 +23,6 @@ final class Store: ObservableObject {
     private let vehiclesURL: URL
     private let tripsURL: URL
     private let settingsURL: URL
-
-    private struct Settings: Codable { var reimbursementRate: Double }
 
     init() {
         let dir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
@@ -126,12 +130,16 @@ final class Store: ObservableObject {
         // Push local items first so they survive the pull-replace below.
         for vehicle in vehicles { try? await supabase.pushVehicle(vehicle) }
         for trip in trips       { try? await supabase.pushTrip(trip) }
+        try? await supabase.pushSettings(settings)
 
         if let cloudVehicles = try? await supabase.pullVehicles(), !cloudVehicles.isEmpty {
             vehicles = cloudVehicles
         }
         if let cloudTrips = try? await supabase.pullTrips() {
             trips = cloudTrips
+        }
+        if let cloudSettings = try? await supabase.pullSettings() {
+            settings = cloudSettings
         }
         save()
     }
@@ -194,7 +202,14 @@ final class Store: ObservableObject {
         encoder.outputFormatting = .prettyPrinted
         try? encoder.encode(vehicles).write(to: vehiclesURL)
         try? encoder.encode(trips).write(to: tripsURL)
-        try? encoder.encode(Settings(reimbursementRate: reimbursementRate)).write(to: settingsURL)
+        try? encoder.encode(settings).write(to: settingsURL)
+        pushSettings()
+    }
+
+    private func pushSettings() {
+        guard let supabase else { return }
+        let snapshot = settings
+        Task { try? await supabase.pushSettings(snapshot) }
     }
 
     private func load() {
@@ -208,8 +223,8 @@ final class Store: ObservableObject {
             trips = decoded
         }
         if let data = try? Data(contentsOf: settingsURL),
-           let decoded = try? decoder.decode(Settings.self, from: data) {
-            reimbursementRate = decoded.reimbursementRate
+           let decoded = try? decoder.decode(UserSettings.self, from: data) {
+            settings = decoded
         }
     }
 }
