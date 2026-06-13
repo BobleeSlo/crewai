@@ -11,5 +11,6 @@ Package.resolved
 # macOS
 .DS_Store
 
-# Local secrets (do NOT commit your Supabase keys in a private build)
-SupabaseConfig.swift
+# Local Info.plist overlays that may contain Supabase credentials.
+Info.local.plist
+*.xcconfig.local

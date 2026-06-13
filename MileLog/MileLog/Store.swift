@@ -4,10 +4,14 @@ import Combine
 /// Local-first data store. Persists vehicles, trips and settings as JSON in the
 /// app's Documents directory. Cloud (Supabase) sync is layered on top of this
 /// in a later phase — see README.
+@MainActor
 final class Store: ObservableObject {
     @Published var vehicles: [Vehicle] = []
     @Published var trips: [Trip] = []
     @Published var reimbursementRate: Double = 0.43   // €/km — EDIT to the current rate, see README
+
+    /// Set after the user signs in; when present, mutations are mirrored to Supabase.
+    private weak var supabase: SupabaseService?
 
     private let vehiclesURL: URL
     private let tripsURL: URL
@@ -39,18 +43,25 @@ final class Store: ObservableObject {
     func addTrip(_ trip: Trip) {
         trips.append(trip)
         save()
+        push(trip)
     }
 
     func updateTrip(_ trip: Trip) {
         guard let idx = trips.firstIndex(where: { $0.id == trip.id }) else { return }
         trips[idx] = trip
         save()
+        push(trip)
     }
 
     func deleteTrips(_ sectionTrips: [Trip], at offsets: IndexSet) {
         let ids = Set(offsets.map { sectionTrips[$0].id })
         trips.removeAll { ids.contains($0.id) }
         save()
+        if let supabase {
+            Task {
+                for id in ids { try? await supabase.deleteTrip(id: id) }
+            }
+        }
     }
 
     /// Trips grouped by calendar month, newest first, with a per-month business total.
@@ -83,17 +94,55 @@ final class Store: ObservableObject {
     func addVehicle(_ vehicle: Vehicle) {
         vehicles.append(vehicle)
         save()
+        push(vehicle)
     }
 
     func updateVehicle(_ vehicle: Vehicle) {
         guard let idx = vehicles.firstIndex(where: { $0.id == vehicle.id }) else { return }
         vehicles[idx] = vehicle
         save()
+        push(vehicle)
     }
 
     func deleteVehicle(at offsets: IndexSet) {
+        let removed = offsets.map { vehicles[$0].id }
         vehicles.remove(atOffsets: offsets)
         save()
+        if let supabase {
+            Task {
+                for id in removed { try? await supabase.deleteVehicle(id: id) }
+            }
+        }
+    }
+
+    // MARK: - Cloud sync
+
+    /// Called once after sign-in: push any local changes the cloud hasn't seen,
+    /// then replace local state with whatever the cloud has.
+    func initialSync(via supabase: SupabaseService) async {
+        self.supabase = supabase
+
+        // Push local items first so they survive the pull-replace below.
+        for vehicle in vehicles { try? await supabase.pushVehicle(vehicle) }
+        for trip in trips       { try? await supabase.pushTrip(trip) }
+
+        if let cloudVehicles = try? await supabase.pullVehicles(), !cloudVehicles.isEmpty {
+            vehicles = cloudVehicles
+        }
+        if let cloudTrips = try? await supabase.pullTrips() {
+            trips = cloudTrips
+        }
+        save()
+    }
+
+    private func push(_ trip: Trip) {
+        guard let supabase else { return }
+        Task { try? await supabase.pushTrip(trip) }
+    }
+
+    private func push(_ vehicle: Vehicle) {
+        guard let supabase else { return }
+        Task { try? await supabase.pushVehicle(vehicle) }
     }
 
     // MARK: - CSV export

@@ -2,6 +2,7 @@ import SwiftUI
 
 struct SettingsView: View {
     @EnvironmentObject var store: Store
+    @EnvironmentObject var supabase: SupabaseService
     @State private var exportURL: URL?
 
     var body: some View {
@@ -27,9 +28,16 @@ struct SettingsView: View {
                     }
                 }
 
+                Section("Account") {
+                    LabeledContent("Signed in as", value: supabase.userEmail ?? "—")
+                    Button("Sign out", role: .destructive) {
+                        Task { await supabase.signOut() }
+                    }
+                }
+
                 Section("About") {
                     LabeledContent("App", value: "MileLog")
-                    LabeledContent("Mode", value: "Local (on this device)")
+                    LabeledContent("Sync", value: "Supabase cloud")
                 }
             }
             .navigationTitle("Settings")
