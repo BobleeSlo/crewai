@@ -26,12 +26,14 @@ struct RecordTripView: View {
                 .pickerStyle(.menu)
                 .disabled(location.isTracking)
 
-                Text(String(format: "%.1f", location.distanceKm))
-                    .font(.system(size: 72, weight: .bold, design: .rounded))
-                    .monospacedDigit()
-                + Text(" km")
-                    .font(.title2)
-                    .foregroundColor(.secondary)
+                HStack(alignment: .lastTextBaseline, spacing: 4) {
+                    Text(String(format: "%.1f", location.distanceKm))
+                        .font(.system(size: 72, weight: .bold, design: .rounded))
+                        .monospacedDigit()
+                    Text("km")
+                        .font(.title2)
+                        .foregroundColor(.secondary)
+                }
 
                 if location.isTracking {
                     Label("Recording…", systemImage: "dot.radiowaves.left.and.right")

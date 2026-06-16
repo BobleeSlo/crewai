@@ -77,10 +77,13 @@ final class NotificationManager: NSObject, ObservableObject, UNUserNotificationC
         withCompletionHandler completionHandler: @escaping () -> Void
     ) {
         let actionID = response.actionIdentifier
-        let userInfo = response.notification.request.content.userInfo
+        // Pull the only piece of userInfo we care about into a Sendable String
+        // before the @Sendable Task closure, so we don't capture the non-Sendable
+        // [AnyHashable: Any] dictionary.
+        let tripIDString = response.notification.request.content.userInfo["tripID"] as? String
 
         Task { @MainActor in
-            self.handleAction(actionID: actionID, userInfo: userInfo)
+            self.handleAction(actionID: actionID, tripIDString: tripIDString)
             completionHandler()
         }
     }
@@ -95,9 +98,9 @@ final class NotificationManager: NSObject, ObservableObject, UNUserNotificationC
     }
 
     @MainActor
-    private func handleAction(actionID: String, userInfo: [AnyHashable: Any]) {
+    private func handleAction(actionID: String, tripIDString: String?) {
         guard
-            let idString = userInfo["tripID"] as? String,
+            let idString = tripIDString,
             let tripID = UUID(uuidString: idString),
             let store,
             var trip = store.trips.first(where: { $0.id == tripID })

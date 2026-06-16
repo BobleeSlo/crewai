@@ -135,7 +135,7 @@ final class SupabaseService: ObservableObject {
         let path = "\(try await currentUserId().uuidString)/\(fileName)"
         try await client.storage
             .from("receipts")
-            .upload(path: path, file: data, options: .init(contentType: "image/jpeg", upsert: true))
+            .upload(path, data: data, options: .init(contentType: "image/jpeg", upsert: true))
         // Public URL (the bucket can be private; we generate a signed URL on demand instead, but
         // for V1 we store the path and rely on the client to fetch via the SDK).
         return path

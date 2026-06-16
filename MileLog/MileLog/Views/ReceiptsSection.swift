@@ -43,9 +43,9 @@ struct ReceiptsSection: View {
                 }
             }
             .disabled(isUploading)
-            .onChange(of: photoItem) { item in
-                guard let item else { return }
-                Task { await uploadSelectedPhoto(item) }
+            .onChange(of: photoItem) { _, newItem in
+                guard let newItem else { return }
+                Task { await uploadSelectedPhoto(newItem) }
             }
 
             if let errorText {

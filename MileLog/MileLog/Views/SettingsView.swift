@@ -156,12 +156,12 @@ struct SettingsView: View {
                 homeInput = store.settings.homeAddress
                 workInput = store.settings.workAddress
             }
-            .onChange(of: store.trips.count) { _ in refreshExport() }
-            .onChange(of: store.settings.reimbursementRate) { _ in
+            .onChange(of: store.trips.count) { refreshExport() }
+            .onChange(of: store.settings.reimbursementRate) {
                 store.save()
                 refreshExport()
             }
-            .onChange(of: store.settings.autoDetectEnabled) { enabled in
+            .onChange(of: store.settings.autoDetectEnabled) { _, enabled in
                 store.save()
                 Task {
                     if enabled {
@@ -172,8 +172,8 @@ struct SettingsView: View {
                     }
                 }
             }
-            .onChange(of: store.settings.stationaryTimeoutMinutes) { _ in store.save() }
-            .onChange(of: store.settings.lockAfterDays) { _ in store.save() }
+            .onChange(of: store.settings.stationaryTimeoutMinutes) { store.save() }
+            .onChange(of: store.settings.lockAfterDays) { store.save() }
         }
     }
 

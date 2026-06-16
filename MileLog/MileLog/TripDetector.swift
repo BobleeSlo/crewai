@@ -227,7 +227,7 @@ final class TripDetector: NSObject, ObservableObject {
             endCoord: endCoord
         )
 
-        var trip = Trip(
+        let trip = Trip(
             id: state.id,
             vehicleID: state.vehicleID,
             type: classified.type,
