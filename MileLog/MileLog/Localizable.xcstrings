@@ -1,0 +1,691 @@
+{
+  "sourceLanguage" : "en",
+  "version" : "1.0",
+  "strings" : {
+    "About" : {
+      "localizations" : {
+        "sl" : { "stringUnit" : { "state" : "translated", "value" : "O aplikaciji" } }
+      }
+    },
+    "Account" : {
+      "localizations" : {
+        "sl" : { "stringUnit" : { "state" : "translated", "value" : "Račun" } }
+      }
+    },
+    "Account created. Check your email to confirm, then sign in." : {
+      "localizations" : {
+        "sl" : { "stringUnit" : { "state" : "translated", "value" : "Račun je ustvarjen. Preverite svoj e-poštni nabiralnik za potrditev, nato se prijavite." } }
+      }
+    },
+    "Active trip" : {
+      "localizations" : {
+        "sl" : { "stringUnit" : { "state" : "translated", "value" : "Aktivna vožnja" } }
+      }
+    },
+    "Add receipt photo" : {
+      "localizations" : {
+        "sl" : { "stringUnit" : { "state" : "translated", "value" : "Dodaj fotografijo računa" } }
+      }
+    },
+    "Add vehicle" : {
+      "localizations" : {
+        "sl" : { "stringUnit" : { "state" : "translated", "value" : "Dodaj vozilo" } }
+      }
+    },
+    "Always ✓" : {
+      "localizations" : {
+        "sl" : { "stringUnit" : { "state" : "translated", "value" : "Vedno ✓" } }
+      }
+    },
+    "All trips (CSV)" : {
+      "localizations" : {
+        "sl" : { "stringUnit" : { "state" : "translated", "value" : "Vse vožnje (CSV)" } }
+      }
+    },
+    "Amount" : {
+      "localizations" : {
+        "sl" : { "stringUnit" : { "state" : "translated", "value" : "Znesek" } }
+      }
+    },
+    "App" : {
+      "localizations" : {
+        "sl" : { "stringUnit" : { "state" : "translated", "value" : "Aplikacija" } }
+      }
+    },
+    "Apply locks now" : {
+      "localizations" : {
+        "sl" : { "stringUnit" : { "state" : "translated", "value" : "Zakleni stare vožnje" } }
+      }
+    },
+    "Auto-detect trips" : {
+      "localizations" : {
+        "sl" : { "stringUnit" : { "state" : "translated", "value" : "Samodejno zaznavanje voženj" } }
+      }
+    },
+    "Auto-recording trip" : {
+      "localizations" : {
+        "sl" : { "stringUnit" : { "state" : "translated", "value" : "Samodejno snemanje vožnje" } }
+      }
+    },
+    "Basics" : {
+      "localizations" : {
+        "sl" : { "stringUnit" : { "state" : "translated", "value" : "Osnove" } }
+      }
+    },
+    "Business" : {
+      "localizations" : {
+        "sl" : { "stringUnit" : { "state" : "translated", "value" : "Poslovno" } }
+      }
+    },
+    "Cancel" : {
+      "localizations" : {
+        "sl" : { "stringUnit" : { "state" : "translated", "value" : "Prekliči" } }
+      }
+    },
+    "Car Bluetooth" : {
+      "localizations" : {
+        "sl" : { "stringUnit" : { "state" : "translated", "value" : "Bluetooth vozila" } }
+      }
+    },
+    "Classify trip" : {
+      "localizations" : {
+        "sl" : { "stringUnit" : { "state" : "translated", "value" : "Razvrsti vožnjo" } }
+      }
+    },
+    "Clear" : {
+      "localizations" : {
+        "sl" : { "stringUnit" : { "state" : "translated", "value" : "Počisti" } }
+      }
+    },
+    "Clear pairing" : {
+      "localizations" : {
+        "sl" : { "stringUnit" : { "state" : "translated", "value" : "Odstrani povezavo" } }
+      }
+    },
+    "Commute" : {
+      "localizations" : {
+        "sl" : { "stringUnit" : { "state" : "translated", "value" : "Pot na delo" } }
+      }
+    },
+    "Company car" : {
+      "localizations" : {
+        "sl" : { "stringUnit" : { "state" : "translated", "value" : "Službeno vozilo" } }
+      }
+    },
+    "Compliance & locking" : {
+      "localizations" : {
+        "sl" : { "stringUnit" : { "state" : "translated", "value" : "Skladnost in zaklepanje" } }
+      }
+    },
+    "Could not load image." : {
+      "localizations" : {
+        "sl" : { "stringUnit" : { "state" : "translated", "value" : "Slike ni bilo mogoče naložiti." } }
+      }
+    },
+    "Create a new account" : {
+      "localizations" : {
+        "sl" : { "stringUnit" : { "state" : "translated", "value" : "Ustvari nov račun" } }
+      }
+    },
+    "Create account" : {
+      "localizations" : {
+        "sl" : { "stringUnit" : { "state" : "translated", "value" : "Ustvari račun" } }
+      }
+    },
+    "Customer / destination" : {
+      "localizations" : {
+        "sl" : { "stringUnit" : { "state" : "translated", "value" : "Stranka / cilj" } }
+      }
+    },
+    "Customer: %@. Tap to confirm or change." : {
+      "localizations" : {
+        "sl" : { "stringUnit" : { "state" : "translated", "value" : "Stranka: %@. Tapnite za potrditev ali spremembo." } }
+      }
+    },
+    "Date" : {
+      "localizations" : {
+        "sl" : { "stringUnit" : { "state" : "translated", "value" : "Datum" } }
+      }
+    },
+    "days" : {
+      "localizations" : {
+        "sl" : { "stringUnit" : { "state" : "translated", "value" : "dni" } }
+      }
+    },
+    "Default" : {
+      "localizations" : {
+        "sl" : { "stringUnit" : { "state" : "translated", "value" : "Privzeto" } }
+      }
+    },
+    "Default trip type" : {
+      "localizations" : {
+        "sl" : { "stringUnit" : { "state" : "translated", "value" : "Privzeti tip vožnje" } }
+      }
+    },
+    "Denied — fix in Settings" : {
+      "localizations" : {
+        "sl" : { "stringUnit" : { "state" : "translated", "value" : "Zavrnjeno — popravite v Nastavitvah" } }
+      }
+    },
+    "Detect trips automatically" : {
+      "localizations" : {
+        "sl" : { "stringUnit" : { "state" : "translated", "value" : "Samodejno zaznaj vožnje" } }
+      }
+    },
+    "Detection log" : {
+      "localizations" : {
+        "sl" : { "stringUnit" : { "state" : "translated", "value" : "Dnevnik zaznav" } }
+      }
+    },
+    "Details" : {
+      "localizations" : {
+        "sl" : { "stringUnit" : { "state" : "translated", "value" : "Podrobnosti" } }
+      }
+    },
+    "Device" : {
+      "localizations" : {
+        "sl" : { "stringUnit" : { "state" : "translated", "value" : "Naprava" } }
+      }
+    },
+    "Discard" : {
+      "localizations" : {
+        "sl" : { "stringUnit" : { "state" : "translated", "value" : "Zavrzi" } }
+      }
+    },
+    "Distance" : {
+      "localizations" : {
+        "sl" : { "stringUnit" : { "state" : "translated", "value" : "Razdalja" } }
+      }
+    },
+    "Done" : {
+      "localizations" : {
+        "sl" : { "stringUnit" : { "state" : "translated", "value" : "Končano" } }
+      }
+    },
+    "Edit trip" : {
+      "localizations" : {
+        "sl" : { "stringUnit" : { "state" : "translated", "value" : "Uredi vožnjo" } }
+      }
+    },
+    "Edit vehicle" : {
+      "localizations" : {
+        "sl" : { "stringUnit" : { "state" : "translated", "value" : "Uredi vozilo" } }
+      }
+    },
+    "Email" : {
+      "localizations" : {
+        "sl" : { "stringUnit" : { "state" : "translated", "value" : "E-pošta" } }
+      }
+    },
+    "End trip after" : {
+      "localizations" : {
+        "sl" : { "stringUnit" : { "state" : "translated", "value" : "Končaj vožnjo po" } }
+      }
+    },
+    "Events" : {
+      "localizations" : {
+        "sl" : { "stringUnit" : { "state" : "translated", "value" : "Dogodki" } }
+      }
+    },
+    "Export %@ trips as CSV" : {
+      "localizations" : {
+        "sl" : { "stringUnit" : { "state" : "translated", "value" : "Izvozi %@ voženj kot CSV" } }
+      }
+    },
+    "From" : {
+      "localizations" : {
+        "sl" : { "stringUnit" : { "state" : "translated", "value" : "Od" } }
+      }
+    },
+    "Fuel" : {
+      "localizations" : {
+        "sl" : { "stringUnit" : { "state" : "translated", "value" : "Gorivo" } }
+      }
+    },
+    "Generate PDF" : {
+      "localizations" : {
+        "sl" : { "stringUnit" : { "state" : "translated", "value" : "Ustvari PDF" } }
+      }
+    },
+    "Generated %@" : {
+      "localizations" : {
+        "sl" : { "stringUnit" : { "state" : "translated", "value" : "Ustvarjeno %@" } }
+      }
+    },
+    "GPS track" : {
+      "localizations" : {
+        "sl" : { "stringUnit" : { "state" : "translated", "value" : "GPS sled" } }
+      }
+    },
+    "Grant location permission" : {
+      "localizations" : {
+        "sl" : { "stringUnit" : { "state" : "translated", "value" : "Dovoli dostop do lokacije" } }
+      }
+    },
+    "Home & Work" : {
+      "localizations" : {
+        "sl" : { "stringUnit" : { "state" : "translated", "value" : "Doma in v službi" } }
+      }
+    },
+    "Home address" : {
+      "localizations" : {
+        "sl" : { "stringUnit" : { "state" : "translated", "value" : "Domači naslov" } }
+      }
+    },
+    "Home location" : {
+      "localizations" : {
+        "sl" : { "stringUnit" : { "state" : "translated", "value" : "Doma" } }
+      }
+    },
+    "I already have an account" : {
+      "localizations" : {
+        "sl" : { "stringUnit" : { "state" : "translated", "value" : "Že imam račun" } }
+      }
+    },
+    "ID" : {
+      "localizations" : {
+        "sl" : { "stringUnit" : { "state" : "translated", "value" : "ID" } }
+      }
+    },
+    "License plate" : {
+      "localizations" : {
+        "sl" : { "stringUnit" : { "state" : "translated", "value" : "Registrska tablica" } }
+      }
+    },
+    "Location access is needed to measure distance." : {
+      "localizations" : {
+        "sl" : { "stringUnit" : { "state" : "translated", "value" : "Za merjenje razdalje je potreben dostop do lokacije." } }
+      }
+    },
+    "Location permission denied. Enable 'Always' for MileLog in iOS Settings → Privacy." : {
+      "localizations" : {
+        "sl" : { "stringUnit" : { "state" : "translated", "value" : "Dovoljenje za lokacijo je zavrnjeno. V iOS Nastavitve → Zasebnost vklopite 'Vedno' za MileLog." } }
+      }
+    },
+    "Lock trips after" : {
+      "localizations" : {
+        "sl" : { "stringUnit" : { "state" : "translated", "value" : "Zakleni vožnje po" } }
+      }
+    },
+    "Locked entry" : {
+      "localizations" : {
+        "sl" : { "stringUnit" : { "state" : "translated", "value" : "Zaklenjena vožnja" } }
+      }
+    },
+    "Locked %@" : {
+      "localizations" : {
+        "sl" : { "stringUnit" : { "state" : "translated", "value" : "Zaklenjeno %@" } }
+      }
+    },
+    "Mileage, date and vehicle can no longer be edited. Edits to purpose, customer and notes are recorded in the compliance audit log." : {
+      "localizations" : {
+        "sl" : { "stringUnit" : { "state" : "translated", "value" : "Kilometrina, datum in vozilo niso več urejljivi. Spremembe namena, stranke in opomb se beležijo v revizijskem dnevniku skladnosti." } }
+      }
+    },
+    "MileLog · %@" : {
+      "localizations" : {
+        "sl" : { "stringUnit" : { "state" : "translated", "value" : "MileLog · %@" } }
+      }
+    },
+    "min stationary" : {
+      "localizations" : {
+        "sl" : { "stringUnit" : { "state" : "translated", "value" : "min mirovanja" } }
+      }
+    },
+    "Monitoring" : {
+      "localizations" : {
+        "sl" : { "stringUnit" : { "state" : "translated", "value" : "Aktivno" } }
+      }
+    },
+    "Monitoring is active. Pair your cars under Vehicles to identify which car you're driving." : {
+      "localizations" : {
+        "sl" : { "stringUnit" : { "state" : "translated", "value" : "Spremljanje je aktivno. Povežite svoja vozila v zavihku Vozila, da prepoznate, s katerim vozilom se peljete." } }
+      }
+    },
+    "Month" : {
+      "localizations" : {
+        "sl" : { "stringUnit" : { "state" : "translated", "value" : "Mesec" } }
+      }
+    },
+    "Monthly PDF logbook" : {
+      "localizations" : {
+        "sl" : { "stringUnit" : { "state" : "translated", "value" : "Mesečno PDF poročilo" } }
+      }
+    },
+    "My car" : {
+      "localizations" : {
+        "sl" : { "stringUnit" : { "state" : "translated", "value" : "Moje vozilo" } }
+      }
+    },
+    "Name (e.g. Škoda Octavia)" : {
+      "localizations" : {
+        "sl" : { "stringUnit" : { "state" : "translated", "value" : "Ime (npr. Škoda Octavia)" } }
+      }
+    },
+    "Need 'Always' location permission for background detection. Tap the button below to upgrade." : {
+      "localizations" : {
+        "sl" : { "stringUnit" : { "state" : "translated", "value" : "Za zaznavanje v ozadju je potrebno dovoljenje za lokacijo 'Vedno'. Tapnite spodnji gumb za nadgradnjo." } }
+      }
+    },
+    "New trip" : {
+      "localizations" : {
+        "sl" : { "stringUnit" : { "state" : "translated", "value" : "Nova vožnja" } }
+      }
+    },
+    "No Bluetooth audio device detected. Make sure your iPhone is currently connected to the car's audio." : {
+      "localizations" : {
+        "sl" : { "stringUnit" : { "state" : "translated", "value" : "Bluetooth zvočna naprava ni zaznana. Prepričajte se, da je vaš iPhone trenutno povezan z avtomobilsko zvočno napravo." } }
+      }
+    },
+    "No events yet." : {
+      "localizations" : {
+        "sl" : { "stringUnit" : { "state" : "translated", "value" : "Še ni dogodkov." } }
+      }
+    },
+    "No trips recorded for %@." : {
+      "localizations" : {
+        "sl" : { "stringUnit" : { "state" : "translated", "value" : "Za mesec %@ ni zabeleženih voženj." } }
+      }
+    },
+    "No trips to export yet." : {
+      "localizations" : {
+        "sl" : { "stringUnit" : { "state" : "translated", "value" : "Še ni voženj za izvoz." } }
+      }
+    },
+    "No trips yet" : {
+      "localizations" : {
+        "sl" : { "stringUnit" : { "state" : "translated", "value" : "Še ni voženj" } }
+      }
+    },
+    "Not asked yet" : {
+      "localizations" : {
+        "sl" : { "stringUnit" : { "state" : "translated", "value" : "Še ni vprašano" } }
+      }
+    },
+    "Not paired yet" : {
+      "localizations" : {
+        "sl" : { "stringUnit" : { "state" : "translated", "value" : "Še ni povezano" } }
+      }
+    },
+    "Notes" : {
+      "localizations" : {
+        "sl" : { "stringUnit" : { "state" : "translated", "value" : "Opombe" } }
+      }
+    },
+    "Off" : {
+      "localizations" : {
+        "sl" : { "stringUnit" : { "state" : "translated", "value" : "Izklopljeno" } }
+      }
+    },
+    "Once locked, a trip's mileage / date / vehicle become immutable. Edits to purpose, customer, and notes are still allowed but recorded in the audit log." : {
+      "localizations" : {
+        "sl" : { "stringUnit" : { "state" : "translated", "value" : "Po zaklepanju postanejo kilometrina / datum / vozilo nespremenljivi. Spremembe namena, stranke in opomb so še vedno dovoljene, vendar zabeležene v revizijskem dnevniku." } }
+      }
+    },
+    "Other" : {
+      "localizations" : {
+        "sl" : { "stringUnit" : { "state" : "translated", "value" : "Drugo" } }
+      }
+    },
+    "Pair with current Bluetooth connection" : {
+      "localizations" : {
+        "sl" : { "stringUnit" : { "state" : "translated", "value" : "Poveži s trenutno Bluetooth povezavo" } }
+      }
+    },
+    "Paired with %@" : {
+      "localizations" : {
+        "sl" : { "stringUnit" : { "state" : "translated", "value" : "Povezano z %@" } }
+      }
+    },
+    "Parking" : {
+      "localizations" : {
+        "sl" : { "stringUnit" : { "state" : "translated", "value" : "Parkirnina" } }
+      }
+    },
+    "Password (min 6 characters)" : {
+      "localizations" : {
+        "sl" : { "stringUnit" : { "state" : "translated", "value" : "Geslo (najmanj 6 znakov)" } }
+      }
+    },
+    "Permission" : {
+      "localizations" : {
+        "sl" : { "stringUnit" : { "state" : "translated", "value" : "Dovoljenje" } }
+      }
+    },
+    "Permission granted but monitoring is off — toggle off and on to restart." : {
+      "localizations" : {
+        "sl" : { "stringUnit" : { "state" : "translated", "value" : "Dovoljenje je odobreno, vendar je spremljanje izklopljeno — izklopite in ponovno vklopite za zagon." } }
+      }
+    },
+    "Private" : {
+      "localizations" : {
+        "sl" : { "stringUnit" : { "state" : "translated", "value" : "Zasebno" } }
+      }
+    },
+    "Purpose" : {
+      "localizations" : {
+        "sl" : { "stringUnit" : { "state" : "translated", "value" : "Namen" } }
+      }
+    },
+    "Rate per km" : {
+      "localizations" : {
+        "sl" : { "stringUnit" : { "state" : "translated", "value" : "Cena na km" } }
+      }
+    },
+    "Receipts" : {
+      "localizations" : {
+        "sl" : { "stringUnit" : { "state" : "translated", "value" : "Računi" } }
+      }
+    },
+    "Record" : {
+      "localizations" : {
+        "sl" : { "stringUnit" : { "state" : "translated", "value" : "Vožnja" } }
+      }
+    },
+    "Record your first trip from the Record tab." : {
+      "localizations" : {
+        "sl" : { "stringUnit" : { "state" : "translated", "value" : "Posnemite svojo prvo vožnjo v zavihku Vožnja." } }
+      }
+    },
+    "Recording…" : {
+      "localizations" : {
+        "sl" : { "stringUnit" : { "state" : "translated", "value" : "Snemanje…" } }
+      }
+    },
+    "Reimbursement" : {
+      "localizations" : {
+        "sl" : { "stringUnit" : { "state" : "translated", "value" : "Povračilo" } }
+      }
+    },
+    "Resolve addresses" : {
+      "localizations" : {
+        "sl" : { "stringUnit" : { "state" : "translated", "value" : "Razreši naslove" } }
+      }
+    },
+    "Resolving…" : {
+      "localizations" : {
+        "sl" : { "stringUnit" : { "state" : "translated", "value" : "Razreševanje…" } }
+      }
+    },
+    "Restricted" : {
+      "localizations" : {
+        "sl" : { "stringUnit" : { "state" : "translated", "value" : "Omejeno" } }
+      }
+    },
+    "Route" : {
+      "localizations" : {
+        "sl" : { "stringUnit" : { "state" : "translated", "value" : "Pot" } }
+      }
+    },
+    "Save" : {
+      "localizations" : {
+        "sl" : { "stringUnit" : { "state" : "translated", "value" : "Shrani" } }
+      }
+    },
+    "Settings" : {
+      "localizations" : {
+        "sl" : { "stringUnit" : { "state" : "translated", "value" : "Nastavitve" } }
+      }
+    },
+    "Share PDF · %lld trips · %@ km business" : {
+      "localizations" : {
+        "sl" : { "stringUnit" : { "state" : "translated", "value" : "Deli PDF · %lld voženj · %@ km poslovno" } }
+      }
+    },
+    "Sign in" : {
+      "localizations" : {
+        "sl" : { "stringUnit" : { "state" : "translated", "value" : "Prijava" } }
+      }
+    },
+    "Sign out" : {
+      "localizations" : {
+        "sl" : { "stringUnit" : { "state" : "translated", "value" : "Odjava" } }
+      }
+    },
+    "Signed in as" : {
+      "localizations" : {
+        "sl" : { "stringUnit" : { "state" : "translated", "value" : "Prijavljen kot" } }
+      }
+    },
+    "Sit in the car with the engine on and your phone connected to the car audio. Then tap the button above." : {
+      "localizations" : {
+        "sl" : { "stringUnit" : { "state" : "translated", "value" : "Sedite v vozilo z vklopljenim motorjem in povezanim telefonom z avtomobilsko zvočno napravo. Nato tapnite zgornji gumb." } }
+      }
+    },
+    "Start trip" : {
+      "localizations" : {
+        "sl" : { "stringUnit" : { "state" : "translated", "value" : "Začni vožnjo" } }
+      }
+    },
+    "Status" : {
+      "localizations" : {
+        "sl" : { "stringUnit" : { "state" : "translated", "value" : "Stanje" } }
+      }
+    },
+    "Stop trip" : {
+      "localizations" : {
+        "sl" : { "stringUnit" : { "state" : "translated", "value" : "Končaj vožnjo" } }
+      }
+    },
+    "Supabase cloud" : {
+      "localizations" : {
+        "sl" : { "stringUnit" : { "state" : "translated", "value" : "Oblak Supabase" } }
+      }
+    },
+    "Sync" : {
+      "localizations" : {
+        "sl" : { "stringUnit" : { "state" : "translated", "value" : "Sinhronizacija" } }
+      }
+    },
+    "Tap − or + to adjust" : {
+      "localizations" : {
+        "sl" : { "stringUnit" : { "state" : "translated", "value" : "Tapnite − ali + za nastavitev" } }
+      }
+    },
+    "Tap the button below to grant location permission." : {
+      "localizations" : {
+        "sl" : { "stringUnit" : { "state" : "translated", "value" : "Tapnite spodnji gumb za dodelitev dovoljenja za lokacijo." } }
+      }
+    },
+    "Tap to classify, or pick one below." : {
+      "localizations" : {
+        "sl" : { "stringUnit" : { "state" : "translated", "value" : "Tapnite za razvrstitev ali izberite spodaj." } }
+      }
+    },
+    "To" : {
+      "localizations" : {
+        "sl" : { "stringUnit" : { "state" : "translated", "value" : "Do" } }
+      }
+    },
+    "Toll" : {
+      "localizations" : {
+        "sl" : { "stringUnit" : { "state" : "translated", "value" : "Cestnina" } }
+      }
+    },
+    "Trip ended" : {
+      "localizations" : {
+        "sl" : { "stringUnit" : { "state" : "translated", "value" : "Vožnja končana" } }
+      }
+    },
+    "Trips" : {
+      "localizations" : {
+        "sl" : { "stringUnit" : { "state" : "translated", "value" : "Poti" } }
+      }
+    },
+    "Type" : {
+      "localizations" : {
+        "sl" : { "stringUnit" : { "state" : "translated", "value" : "Tip" } }
+      }
+    },
+    "Upload failed: %@" : {
+      "localizations" : {
+        "sl" : { "stringUnit" : { "state" : "translated", "value" : "Nalaganje ni uspelo: %@" } }
+      }
+    },
+    "Uploading…" : {
+      "localizations" : {
+        "sl" : { "stringUnit" : { "state" : "translated", "value" : "Nalaganje…" } }
+      }
+    },
+    "Used as the default classification when this vehicle's trip is auto-detected." : {
+      "localizations" : {
+        "sl" : { "stringUnit" : { "state" : "translated", "value" : "Uporabljeno kot privzeta razvrstitev pri samodejnem zaznavanju vožnje s tem vozilom." } }
+      }
+    },
+    "Used to recognize commute trips (Home → Work mornings, Work → Home evenings)." : {
+      "localizations" : {
+        "sl" : { "stringUnit" : { "state" : "translated", "value" : "Uporablja se za prepoznavanje voženj na delo (jutranje Doma → Služba, večerne Služba → Doma)." } }
+      }
+    },
+    "Vehicle" : {
+      "localizations" : {
+        "sl" : { "stringUnit" : { "state" : "translated", "value" : "Vozilo" } }
+      }
+    },
+    "Vehicles" : {
+      "localizations" : {
+        "sl" : { "stringUnit" : { "state" : "translated", "value" : "Vozila" } }
+      }
+    },
+    "When enabled, the app starts trips automatically when you start driving and ends them when you stop." : {
+      "localizations" : {
+        "sl" : { "stringUnit" : { "state" : "translated", "value" : "Ko je vklopljeno, aplikacija samodejno zazna začetek in konec vaše vožnje." } }
+      }
+    },
+    "While using — needs upgrade" : {
+      "localizations" : {
+        "sl" : { "stringUnit" : { "state" : "translated", "value" : "Med uporabo — potrebna nadgradnja" } }
+      }
+    },
+    "Work address" : {
+      "localizations" : {
+        "sl" : { "stringUnit" : { "state" : "translated", "value" : "Naslov službe" } }
+      }
+    },
+    "Work location" : {
+      "localizations" : {
+        "sl" : { "stringUnit" : { "state" : "translated", "value" : "Služba" } }
+      }
+    },
+    "Year" : {
+      "localizations" : {
+        "sl" : { "stringUnit" : { "state" : "translated", "value" : "Leto" } }
+      }
+    },
+    "Your trips are stored in your own Supabase project. Row-Level Security keeps every row private to your account." : {
+      "localizations" : {
+        "sl" : { "stringUnit" : { "state" : "translated", "value" : "Vaše vožnje so shranjene v vašem lastnem Supabase projektu. Row-Level Security ohranja vsako vrstico zasebno za vaš račun." } }
+      }
+    },
+    "%lld trips · %@ km total · %@ km business · € %@ reimbursement" : {
+      "localizations" : {
+        "sl" : { "stringUnit" : { "state" : "translated", "value" : "%lld voženj · %@ km skupaj · %@ km poslovno · € %@ povračilo" } }
+      }
+    },
+    "%lld points recorded" : {
+      "localizations" : {
+        "sl" : { "stringUnit" : { "state" : "translated", "value" : "%lld zabeleženih točk" } }
+      }
+    }
+  }
+}

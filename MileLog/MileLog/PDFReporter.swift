@@ -13,7 +13,18 @@ enum PDFReporter {
 
     /// Column widths (sum must equal page width minus 2 * margin = 523).
     private static let columnWidths: [CGFloat] = [60, 80, 60, 95, 110, 50, 50, 18]
-    private static let columnTitles  = ["Date", "Vehicle", "Type", "From", "To", "km", "€", ""]
+    private static var columnTitles: [String] {
+        [
+            String(localized: "Date"),
+            String(localized: "Vehicle"),
+            String(localized: "Type"),
+            String(localized: "From"),
+            String(localized: "To"),
+            "km",
+            "€",
+            ""
+        ]
+    }
 
     struct Result {
         let url: URL
@@ -73,7 +84,7 @@ enum PDFReporter {
             }
 
             if monthly.isEmpty {
-                let note = "No trips recorded for \(monthLabel)."
+                let note = String(localized: "No trips recorded for \(monthLabel).")
                 note.draw(at: CGPoint(x: margin, y: y + 8),
                           withAttributes: [
                             .font: UIFont.italicSystemFont(ofSize: 11),
@@ -103,13 +114,16 @@ enum PDFReporter {
             .foregroundColor: UIColor.darkGray
         ]
 
-        "MileLog · \(month)".draw(at: CGPoint(x: margin, y: margin), withAttributes: titleAttrs)
+        let title = String(localized: "MileLog · \(month)")
+        title.draw(at: CGPoint(x: margin, y: margin), withAttributes: titleAttrs)
 
-        let summary = String(format: "%d trips · %.1f km total · %.1f km business · € %.2f reimbursement",
-                             tripCount, totalKm, businessKm, businessEur)
+        let summary = String(
+            localized: "\(tripCount) trips · \(String(format: "%.1f", totalKm)) km total · \(String(format: "%.1f", businessKm)) km business · € \(String(format: "%.2f", businessEur)) reimbursement"
+        )
         summary.draw(at: CGPoint(x: margin, y: margin + 30), withAttributes: subAttrs)
 
-        let generated = "Generated " + DateFormatter.localizedString(from: Date(), dateStyle: .medium, timeStyle: .short)
+        let stamp = DateFormatter.localizedString(from: Date(), dateStyle: .medium, timeStyle: .short)
+        let generated = String(localized: "Generated \(stamp)")
         generated.draw(at: CGPoint(x: margin, y: margin + 46), withAttributes: subAttrs)
     }
 

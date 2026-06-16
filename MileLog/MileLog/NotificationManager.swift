@@ -35,9 +35,12 @@ final class NotificationManager: NSObject, ObservableObject, UNUserNotificationC
     // MARK: - Categories with quick-classify actions
 
     private func registerCategories() {
-        let business = UNNotificationAction(identifier: "CLASSIFY_BUSINESS", title: "Business", options: [])
-        let commute  = UNNotificationAction(identifier: "CLASSIFY_COMMUTE",  title: "Commute",  options: [])
-        let priv     = UNNotificationAction(identifier: "CLASSIFY_PRIVATE",  title: "Private",  options: [])
+        let business = UNNotificationAction(identifier: "CLASSIFY_BUSINESS",
+                                            title: String(localized: "Business"), options: [])
+        let commute  = UNNotificationAction(identifier: "CLASSIFY_COMMUTE",
+                                            title: String(localized: "Commute"),  options: [])
+        let priv     = UNNotificationAction(identifier: "CLASSIFY_PRIVATE",
+                                            title: String(localized: "Private"),  options: [])
 
         let category = UNNotificationCategory(
             identifier: classifyCategoryID,
@@ -52,11 +55,14 @@ final class NotificationManager: NSObject, ObservableObject, UNUserNotificationC
 
     func sendClassifyNotification(for trip: Trip) async {
         let content = UNMutableNotificationContent()
-        content.title = "Trip ended"
-        content.subtitle = String(format: "%.1f km · %@", trip.distanceKm, trip.type.label)
-        content.body = trip.customerName.isEmpty
-            ? "Tap to classify, or pick one below."
-            : "Customer: \(trip.customerName). Tap to confirm or change."
+        content.title = String(localized: "Trip ended")
+        let distanceText = String(format: "%.1f km", trip.distanceKm)
+        content.subtitle = "\(distanceText) · \(trip.type.label)"
+        if trip.customerName.isEmpty {
+            content.body = String(localized: "Tap to classify, or pick one below.")
+        } else {
+            content.body = String(localized: "Customer: \(trip.customerName). Tap to confirm or change.")
+        }
         content.categoryIdentifier = classifyCategoryID
         content.userInfo = ["tripID": trip.id.uuidString]
         content.sound = .default

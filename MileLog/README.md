@@ -129,6 +129,25 @@ for free with any Apple ID.
 - `TripEditor` pulls points lazily and renders them on an embedded MapKit
   polyline (`TripMapView`) with start/end annotations.
 
+**Phase 5 — Localization (Slovenian)** ✅
+- `Localizable.xcstrings` (String Catalog) contains every user-facing string
+  with English source + Slovenian translation.
+- `InfoPlist.xcstrings` localizes the location, camera and photo library
+  permission prompts.
+- Trip / Vehicle / Receipt enum labels use `String(localized:)` so they pick up
+  the user's language at runtime.
+- Notification text and PDF report headers are localized so the export the
+  user emails to their accountant arrives in the right language.
+
+**One-time Xcode setup for localization**
+1. Project navigator → blue **MileLog** project icon → **Info** tab → under
+   **Localizations**, click **+** → choose **Slovenian** (sl) → Finish.
+2. Drag `Localizable.xcstrings` and `InfoPlist.xcstrings` from `MileLog/` into
+   the Xcode sidebar (Copy items if needed → unchecked; target → MileLog).
+3. Build & run. To preview the Slovenian UI without changing your iOS device
+   language: target → **Scheme → Edit Scheme → Run → Options → App Language →
+   Slovenian** → close → run. Revert to "System" to switch back.
+
 **Phase 4d — Receipts** ✅
 - Inline "Receipts" section in the trip editor with a `PhotosPicker` for
   attaching fuel / parking / toll / other receipts.

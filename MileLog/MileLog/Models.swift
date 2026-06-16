@@ -8,10 +8,11 @@ enum VehicleType: String, Codable, CaseIterable, Identifiable {
 
     var id: String { rawValue }
 
+    /// Localized — looked up in Localizable.xcstrings at call time.
     var label: String {
         switch self {
-        case .own:     return "My car"
-        case .company: return "Company car"
+        case .own:     return String(localized: "My car")
+        case .company: return String(localized: "Company car")
         }
     }
 }
@@ -25,9 +26,9 @@ enum TripType: String, Codable, CaseIterable, Identifiable {
 
     var label: String {
         switch self {
-        case .business:    return "Business"
-        case .commute:     return "Commute"
-        case .privateTrip: return "Private"
+        case .business:    return String(localized: "Business")
+        case .commute:     return String(localized: "Commute")
+        case .privateTrip: return String(localized: "Private")
         }
     }
 }
@@ -180,10 +181,10 @@ enum ReceiptType: String, Codable, CaseIterable, Identifiable {
     var id: String { rawValue }
     var label: String {
         switch self {
-        case .fuel:    return "Fuel"
-        case .parking: return "Parking"
-        case .toll:    return "Toll"
-        case .other:   return "Other"
+        case .fuel:    return String(localized: "Fuel")
+        case .parking: return String(localized: "Parking")
+        case .toll:    return String(localized: "Toll")
+        case .other:   return String(localized: "Other")
         }
     }
 }

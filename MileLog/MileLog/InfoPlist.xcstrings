@@ -1,0 +1,70 @@
+{
+  "sourceLanguage" : "en",
+  "version" : "1.0",
+  "strings" : {
+    "NSLocationWhenInUseUsageDescription" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "MileLog measures the distance of your trips."
+          }
+        },
+        "sl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "MileLog meri razdaljo vaših voženj."
+          }
+        }
+      }
+    },
+    "NSLocationAlwaysAndWhenInUseUsageDescription" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "MileLog records trips in the background so you don't have to."
+          }
+        },
+        "sl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "MileLog samodejno snema vaše vožnje v ozadju, da vam ni treba ročno."
+          }
+        }
+      }
+    },
+    "NSPhotoLibraryUsageDescription" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "MileLog attaches receipt photos to your trips."
+          }
+        },
+        "sl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "MileLog priloži fotografije računov k vašim vožnjam."
+          }
+        }
+      }
+    },
+    "NSCameraUsageDescription" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "MileLog uses the camera to capture receipt photos."
+          }
+        },
+        "sl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "MileLog uporablja kamero za zajem fotografij računov."
+          }
+        }
+      }
+    }
+  }
+}
