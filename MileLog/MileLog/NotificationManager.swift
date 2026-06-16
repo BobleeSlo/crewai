@@ -1,4 +1,5 @@
 import Foundation
+import Combine
 import UserNotifications
 
 /// Local notifications for auto-detected trips: ask the user to confirm/edit
