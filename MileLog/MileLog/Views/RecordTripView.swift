@@ -3,6 +3,7 @@ import SwiftUI
 struct RecordTripView: View {
     @EnvironmentObject var store: Store
     @EnvironmentObject var location: LocationManager
+    @EnvironmentObject var detector: TripDetector
 
     @State private var selectedVehicleID: UUID?
     @State private var tripToClassify: Trip?
@@ -10,6 +11,10 @@ struct RecordTripView: View {
     var body: some View {
         NavigationStack {
             VStack(spacing: 28) {
+                if let autoTrip = detector.activeTrip {
+                    autoBanner(autoTrip)
+                }
+
                 Spacer()
 
                 Picker("Vehicle", selection: $selectedVehicleID) {
@@ -63,6 +68,26 @@ struct RecordTripView: View {
                 ClassifyTripView(trip: trip)
             }
         }
+    }
+
+    private func autoBanner(_ trip: ActiveTripState) -> some View {
+        let vehicleName = store.vehicleName(trip.vehicleID)
+        return HStack(spacing: 12) {
+            Image(systemName: "dot.radiowaves.left.and.right")
+                .foregroundColor(.green)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Auto-recording trip")
+                    .font(.subheadline.bold())
+                Text(String(format: "%@ · %.1f km", vehicleName, trip.distanceKm))
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+            Spacer()
+        }
+        .padding()
+        .background(Color.green.opacity(0.1))
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .padding(.horizontal)
     }
 
     private func toggleTracking() {

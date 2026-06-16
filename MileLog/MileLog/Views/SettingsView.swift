@@ -4,6 +4,8 @@ import CoreLocation
 struct SettingsView: View {
     @EnvironmentObject var store: Store
     @EnvironmentObject var supabase: SupabaseService
+    @EnvironmentObject var detector: TripDetector
+    @EnvironmentObject var notifications: NotificationManager
     @State private var exportURL: URL?
 
     @State private var homeInput = ""
@@ -26,14 +28,22 @@ struct SettingsView: View {
 
                 Section("Auto-detect trips") {
                     Toggle("Detect trips automatically", isOn: $store.settings.autoDetectEnabled)
-                    Text(store.settings.autoDetectEnabled
-                         ? "The detector will be enabled when Phase 3b ships. Pair your cars under Vehicles to make the most of it."
-                         : "When enabled, the app starts trips automatically when you start driving and ends them when you stop.")
+                    Text(autoDetectHint)
                         .font(.footnote)
                         .foregroundColor(.secondary)
 
                     Stepper(value: $store.settings.stationaryTimeoutMinutes, in: 2...20) {
                         Text("End trip after \(store.settings.stationaryTimeoutMinutes) min stationary")
+                    }
+
+                    if store.settings.autoDetectEnabled && detector.permission != .authorizedAlways {
+                        Button("Grant location permission") {
+                            Task { await detector.requestEnable() }
+                        }
+                    }
+
+                    NavigationLink("Detection log") {
+                        DetectionLogView()
                     }
                 }
 
@@ -104,8 +114,38 @@ struct SettingsView: View {
                 store.save()
                 refreshExport()
             }
-            .onChange(of: store.settings.autoDetectEnabled) { _ in store.save() }
+            .onChange(of: store.settings.autoDetectEnabled) { enabled in
+                store.save()
+                Task {
+                    if enabled {
+                        _ = await notifications.requestPermission()
+                        await detector.requestEnable()
+                    } else {
+                        detector.disable()
+                    }
+                }
+            }
             .onChange(of: store.settings.stationaryTimeoutMinutes) { _ in store.save() }
+        }
+    }
+
+    private var autoDetectHint: String {
+        if !store.settings.autoDetectEnabled {
+            return "When enabled, the app starts trips automatically when you start driving and ends them when you stop."
+        }
+        switch detector.permission {
+        case .authorizedAlways:
+            return detector.isEnabled
+                ? "Monitoring is active. Pair your cars under Vehicles to identify which car you're driving."
+                : "Permission granted but monitoring is off — toggle off and on to restart."
+        case .authorizedWhenInUse:
+            return "Need 'Always' location permission for background detection. Tap the button below to upgrade."
+        case .notDetermined:
+            return "Tap the button below to grant location permission."
+        case .denied, .restricted:
+            return "Location permission denied. Enable 'Always' for MileLog in iOS Settings → Privacy."
+        @unknown default:
+            return ""
         }
     }
 

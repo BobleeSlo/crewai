@@ -106,12 +106,32 @@ for free with any Apple ID.
 - Settings synced to a new `user_settings` table (one row per user, RLS-scoped).
 - Run `supabase/migration-002-phase3a.sql` in the SQL Editor once.
 
-**Phase 3b — Automatic trip detection** *(in progress)*
-- Significant-location + visit monitoring and `CMMotionActivityManager` driving
-  detection to start/stop trips automatically; on trip-end, send a
-  "Classify your trip" notification that uses the BT pairing + home/work rules
-  to pre-fill the right defaults. Requires the *Location updates* background
-  mode and *Always* location permission.
+**Phase 3b — Automatic trip detection** ✅
+- `TripDetector` wakes the app on significant location changes, identifies the
+  car via the connected Bluetooth audio device, and starts a trip with the
+  matching vehicle.
+- Active GPS while a trip runs (kept alive by `UIBackgroundModes = location`).
+- Trip ends on **Bluetooth disconnect** or after the configured stationary
+  timeout (default 5 min), whichever fires first.
+- `TripClassifier` picks a default trip type using ordered rules: commute
+  pattern (Home ↔ Work on a weekday at a plausible hour), company-car =
+  business, weekend/evening own-car = private, otherwise the vehicle's
+  configured default.
+- Local notification with **Business / Commute / Private** quick actions on
+  trip end — tap an action to update the trip's classification in-place.
+- **Settings → Detection log** — last 100 events (significant-location wakes,
+  trip start/end, BT route changes, errors) for debugging on real drives.
+- Active trip persisted to disk so a force-quit doesn't lose the in-progress
+  recording.
+
+**Required Xcode setup for Phase 3b**
+
+1. Target → **Signing & Capabilities** → **+ Capability → Background Modes**
+   → check **Location updates**.
+2. Target → **Info** tab → confirm the existing location strings, and the app
+   will request "Always" authorization on first toggle. Make sure your
+   "Always" usage description clearly says the app monitors trips in the
+   background.
 
 **Phase 4 — Compliance & reporting** *(planned)*
 - GPS track storage (`trip_points`) for auto-detected trips
