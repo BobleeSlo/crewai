@@ -62,6 +62,7 @@ struct AuthView: View {
                 }
             }
             .navigationTitle("MileLog")
+            .keyboardDoneToolbar()
         }
     }
 

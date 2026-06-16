@@ -11,95 +11,138 @@ struct SettingsView: View {
     @State private var homeInput = ""
     @State private var workInput = ""
     @State private var geocodeStatus: String?
+    @State private var isGeocoding = false
 
     // Monthly PDF export state
     @State private var pdfYear: Int = Calendar.current.component(.year, from: Date())
     @State private var pdfMonth: Int = Calendar.current.component(.month, from: Date())
     @State private var pdfResult: PDFReporter.Result?
 
+    private enum Field: Hashable { case rate, home, work }
+    @FocusState private var focusedField: Field?
+
     var body: some View {
         NavigationStack {
             Form {
-                Section("Reimbursement") {
+
+                // MARK: Reimbursement
+                Section {
                     HStack {
                         Text("Rate per km")
                         Spacer()
                         TextField("0.43", value: $store.settings.reimbursementRate, format: .number)
                             .keyboardType(.decimalPad)
                             .multilineTextAlignment(.trailing)
+                            .focused($focusedField, equals: .rate)
+                            .frame(maxWidth: 80)
                         Text("€").foregroundColor(.secondary)
                     }
+                } header: {
+                    SectionHeaderLabel(title: "Reimbursement", systemImage: "eurosign.circle")
                 }
 
-                Section("Auto-detect trips") {
-                    Toggle("Detect trips automatically", isOn: $store.settings.autoDetectEnabled)
+                // MARK: Auto-detect
+                Section {
+                    Toggle(isOn: $store.settings.autoDetectEnabled) {
+                        Label("Detect trips automatically", systemImage: "location.fill")
+                    }
                     Text(autoDetectHint)
                         .font(.footnote)
                         .foregroundColor(.secondary)
 
-                    Stepper(value: $store.settings.stationaryTimeoutMinutes, in: 2...20) {
-                        Text("End trip after \(store.settings.stationaryTimeoutMinutes) min stationary")
-                    }
+                    PrettyStepper(
+                        value: $store.settings.stationaryTimeoutMinutes,
+                        range: 2...20,
+                        label: "End trip after",
+                        unit: "min stationary"
+                    )
 
                     if store.settings.autoDetectEnabled && detector.permission != .authorizedAlways {
-                        Button("Grant location permission") {
+                        Button {
                             Task { await detector.requestEnable() }
+                        } label: {
+                            Label("Grant location permission", systemImage: "checkmark.shield")
+                                .frame(maxWidth: .infinity)
                         }
+                        .buttonStyle(.borderedProminent)
                     }
 
-                    NavigationLink("Detection log") {
+                    NavigationLink {
                         DetectionLogView()
+                    } label: {
+                        Label("Detection log", systemImage: "list.bullet.rectangle.portrait")
                     }
+                } header: {
+                    SectionHeaderLabel(title: "Auto-detect trips", systemImage: "dot.radiowaves.left.and.right")
                 }
 
-                Section("Compliance & locking") {
-                    Stepper(value: $store.settings.lockAfterDays, in: 1...90) {
-                        Text("Lock trips after \(store.settings.lockAfterDays) days")
-                    }
+                // MARK: Compliance & locking
+                Section {
+                    PrettyStepper(
+                        value: $store.settings.lockAfterDays,
+                        range: 1...90,
+                        label: "Lock trips after",
+                        unit: "days"
+                    )
                     Text("Once locked, a trip's mileage / date / vehicle become immutable. Edits to purpose, customer, and notes are still allowed but recorded in the audit log.")
                         .font(.footnote)
                         .foregroundColor(.secondary)
-                    Button("Apply locks now") {
+
+                    Button {
                         store.applyAutomaticLocks()
+                    } label: {
+                        Label("Apply locks now", systemImage: "lock.fill")
+                            .frame(maxWidth: .infinity)
                     }
+                    .buttonStyle(.bordered)
+                    .tint(.orange)
+                } header: {
+                    SectionHeaderLabel(title: "Compliance & locking", systemImage: "lock.shield")
                 }
 
-                Section("Home & Work") {
-                    TextField("Home address", text: $homeInput)
-                        .textInputAutocapitalization(.words)
-                    if let lat = store.settings.homeLat, let lng = store.settings.homeLng {
-                        LabeledContent("Home location") {
-                            Text(String(format: "%.4f, %.4f", lat, lng))
-                                .font(.caption.monospaced())
-                                .foregroundColor(.secondary)
-                        }
-                    }
+                // MARK: Home & Work
+                Section {
+                    addressField(
+                        placeholder: "Home address",
+                        text: $homeInput,
+                        lat: store.settings.homeLat,
+                        lng: store.settings.homeLng,
+                        focus: .home
+                    )
 
-                    TextField("Work address", text: $workInput)
-                        .textInputAutocapitalization(.words)
-                    if let lat = store.settings.workLat, let lng = store.settings.workLng {
-                        LabeledContent("Work location") {
-                            Text(String(format: "%.4f, %.4f", lat, lng))
-                                .font(.caption.monospaced())
-                                .foregroundColor(.secondary)
-                        }
-                    }
+                    addressField(
+                        placeholder: "Work address",
+                        text: $workInput,
+                        lat: store.settings.workLat,
+                        lng: store.settings.workLng,
+                        focus: .work
+                    )
 
-                    Button("Resolve addresses") {
+                    Button {
                         Task { await geocodeAddresses() }
+                    } label: {
+                        Label(isGeocoding ? "Resolving…" : "Resolve addresses",
+                              systemImage: "mappin.and.ellipse")
+                            .frame(maxWidth: .infinity)
                     }
-                    .disabled(homeInput.isEmpty && workInput.isEmpty)
+                    .buttonStyle(.borderedProminent)
+                    .disabled(isGeocoding || (homeInput.isEmpty && workInput.isEmpty))
 
                     if let geocodeStatus {
-                        Text(geocodeStatus).font(.footnote).foregroundColor(.secondary)
+                        Text(geocodeStatus)
+                            .font(.footnote)
+                            .foregroundColor(.secondary)
                     }
 
                     Text("Used to recognize commute trips (Home → Work mornings, Work → Home evenings).")
                         .font(.footnote)
                         .foregroundColor(.secondary)
+                } header: {
+                    SectionHeaderLabel(title: "Home & Work", systemImage: "house")
                 }
 
-                Section("Monthly PDF logbook") {
+                // MARK: Monthly PDF
+                Section {
                     Picker("Month", selection: $pdfMonth) {
                         ForEach(1...12, id: \.self) { m in
                             Text(monthLabel(m)).tag(m)
@@ -111,7 +154,7 @@ struct SettingsView: View {
                         }
                     }
 
-                    Button("Generate PDF") {
+                    Button {
                         pdfResult = PDFReporter.generateMonthly(
                             trips: store.trips,
                             vehicleLookup: { store.vehicle($0) },
@@ -119,38 +162,62 @@ struct SettingsView: View {
                             year: pdfYear,
                             month: pdfMonth
                         )
+                    } label: {
+                        Label("Generate PDF", systemImage: "doc.richtext")
+                            .frame(maxWidth: .infinity)
                     }
+                    .buttonStyle(.borderedProminent)
 
                     if let pdfResult {
-                        ShareLink(
-                            "Share PDF (\(pdfResult.tripCount) trips · \(String(format: "%.0f", pdfResult.businessKm)) km business)",
-                            item: pdfResult.url
-                        )
+                        ShareLink(item: pdfResult.url) {
+                            Label(
+                                "Share PDF · \(pdfResult.tripCount) trips · \(String(format: "%.0f", pdfResult.businessKm)) km business",
+                                systemImage: "square.and.arrow.up"
+                            )
+                            .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.bordered)
                     }
+                } header: {
+                    SectionHeaderLabel(title: "Monthly PDF logbook", systemImage: "doc.text")
                 }
 
-                Section("All trips (CSV)") {
+                // MARK: CSV export
+                Section {
                     if let exportURL {
-                        ShareLink("Export \(store.trips.count) trips as CSV", item: exportURL)
+                        ShareLink(item: exportURL) {
+                            Label("Export \(store.trips.count) trips as CSV",
+                                  systemImage: "tablecells")
+                        }
                     } else {
                         Text("No trips to export yet.")
                             .foregroundColor(.secondary)
                     }
+                } header: {
+                    SectionHeaderLabel(title: "All trips (CSV)", systemImage: "tablecells")
                 }
 
-                Section("Account") {
+                // MARK: Account
+                Section {
                     LabeledContent("Signed in as", value: supabase.userEmail ?? "—")
-                    Button("Sign out", role: .destructive) {
+                    Button(role: .destructive) {
                         Task { await supabase.signOut() }
+                    } label: {
+                        Label("Sign out", systemImage: "rectangle.portrait.and.arrow.right")
                     }
+                } header: {
+                    SectionHeaderLabel(title: "Account", systemImage: "person.crop.circle")
                 }
 
-                Section("About") {
+                Section {
                     LabeledContent("App", value: "MileLog")
                     LabeledContent("Sync", value: "Supabase cloud")
+                } header: {
+                    SectionHeaderLabel(title: "About", systemImage: "info.circle")
                 }
             }
             .navigationTitle("Settings")
+            .keyboardDoneToolbar()
             .onAppear {
                 refreshExport()
                 homeInput = store.settings.homeAddress
@@ -175,6 +242,39 @@ struct SettingsView: View {
             .onChange(of: store.settings.stationaryTimeoutMinutes) { store.save() }
             .onChange(of: store.settings.lockAfterDays) { store.save() }
         }
+    }
+
+    // MARK: - Address field helper
+
+    @ViewBuilder
+    private func addressField(
+        placeholder: String,
+        text: Binding<String>,
+        lat: Double?,
+        lng: Double?,
+        focus: Field
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            TextField(placeholder, text: text)
+                .textInputAutocapitalization(.words)
+                .submitLabel(.done)
+                .focused($focusedField, equals: focus)
+                .onSubmit {
+                    Task { await geocodeAddresses() }
+                }
+
+            if let lat, let lng {
+                HStack(spacing: 4) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundColor(.green)
+                        .font(.caption2)
+                    Text(String(format: "%.4f, %.4f", lat, lng))
+                        .font(.caption.monospaced())
+                        .foregroundColor(.secondary)
+                }
+            }
+        }
+        .padding(.vertical, 2)
     }
 
     private var autoDetectHint: String {
@@ -218,6 +318,9 @@ struct SettingsView: View {
     }
 
     private func geocodeAddresses() async {
+        focusedField = nil          // dismiss keyboard
+        isGeocoding = true
+        defer { isGeocoding = false }
         geocodeStatus = "Resolving…"
         let geocoder = CLGeocoder()
         var status: [String] = []

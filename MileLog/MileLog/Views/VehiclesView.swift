@@ -128,6 +128,7 @@ struct VehicleEditView: View {
             }
             .navigationTitle(isNew ? "Add vehicle" : "Edit vehicle")
             .navigationBarTitleDisplayMode(.inline)
+            .keyboardDoneToolbar()
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") {

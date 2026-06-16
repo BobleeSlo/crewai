@@ -95,6 +95,7 @@ struct TripEditor: View {
         }
         .navigationTitle(isNew ? "Classify trip" : "Edit trip")
         .navigationBarTitleDisplayMode(.inline)
+        .keyboardDoneToolbar()
         .toolbar {
             ToolbarItem(placement: .confirmationAction) {
                 Button("Save") {
