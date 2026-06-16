@@ -106,6 +106,14 @@ for free with any Apple ID.
 - Settings synced to a new `user_settings` table (one row per user, RLS-scoped).
 - Run `supabase/migration-002-phase3a.sql` in the SQL Editor once.
 
+**Phase 4a — Monthly PDF logbook** ✅
+- New **Settings → Monthly PDF logbook** section with month + year pickers and a
+  ShareLink that exports an A4 portrait PDF for the chosen month.
+- Layout: title + monthly totals (trips, total km, business km, reimbursement €),
+  followed by a per-trip table (date, vehicle, type, from/to, km, €). Multi-page
+  with zebra stripes; trips ordered chronologically.
+- Implemented with `UIGraphicsPDFRenderer` — no third-party PDF dependency.
+
 **Phase 3b — Automatic trip detection** ✅
 - `TripDetector` wakes the app on significant location changes, identifies the
   car via the connected Bluetooth audio device, and starts a trip with the

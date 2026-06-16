@@ -12,6 +12,11 @@ struct SettingsView: View {
     @State private var workInput = ""
     @State private var geocodeStatus: String?
 
+    // Monthly PDF export state
+    @State private var pdfYear: Int = Calendar.current.component(.year, from: Date())
+    @State private var pdfMonth: Int = Calendar.current.component(.month, from: Date())
+    @State private var pdfResult: PDFReporter.Result?
+
     var body: some View {
         NavigationStack {
             Form {
@@ -82,7 +87,37 @@ struct SettingsView: View {
                         .foregroundColor(.secondary)
                 }
 
-                Section("Export") {
+                Section("Monthly PDF logbook") {
+                    Picker("Month", selection: $pdfMonth) {
+                        ForEach(1...12, id: \.self) { m in
+                            Text(monthLabel(m)).tag(m)
+                        }
+                    }
+                    Picker("Year", selection: $pdfYear) {
+                        ForEach(yearRange, id: \.self) { y in
+                            Text(String(y)).tag(y)
+                        }
+                    }
+
+                    Button("Generate PDF") {
+                        pdfResult = PDFReporter.generateMonthly(
+                            trips: store.trips,
+                            vehicleLookup: { store.vehicle($0) },
+                            rate: store.settings.reimbursementRate,
+                            year: pdfYear,
+                            month: pdfMonth
+                        )
+                    }
+
+                    if let pdfResult {
+                        ShareLink(
+                            "Share PDF (\(pdfResult.tripCount) trips · \(String(format: "%.0f", pdfResult.businessKm)) km business)",
+                            item: pdfResult.url
+                        )
+                    }
+                }
+
+                Section("All trips (CSV)") {
                     if let exportURL {
                         ShareLink("Export \(store.trips.count) trips as CSV", item: exportURL)
                     } else {
@@ -151,6 +186,22 @@ struct SettingsView: View {
 
     private func refreshExport() {
         exportURL = store.trips.isEmpty ? nil : store.exportCSV()
+    }
+
+    private func monthLabel(_ month: Int) -> String {
+        let df = DateFormatter()
+        return df.monthSymbols[month - 1]
+    }
+
+    /// Years that have at least one trip plus the current year.
+    private var yearRange: [Int] {
+        let cal = Calendar.current
+        let thisYear = cal.component(.year, from: Date())
+        var years = Set<Int>([thisYear])
+        for trip in store.trips {
+            years.insert(cal.component(.year, from: trip.startedAt))
+        }
+        return years.sorted(by: >)
     }
 
     private func geocodeAddresses() async {
