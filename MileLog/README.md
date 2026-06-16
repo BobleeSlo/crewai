@@ -114,6 +114,31 @@ for free with any Apple ID.
   with zebra stripes; trips ordered chronologically.
 - Implemented with `UIGraphicsPDFRenderer` — no third-party PDF dependency.
 
+**Phase 4b — Trip locking + audit log** ✅
+- Trips automatically lock after `UserSettings.lockAfterDays` (default 7 days).
+- Locked trips are read-only for mileage / date / vehicle in the editor;
+  purpose / customer / notes stay editable, and every change is pushed to
+  `trip_audit_log` for the compliance audit trail.
+- Trips list row shows a small lock badge on locked entries.
+- Settings → Compliance & locking: stepper + "Apply locks now" button.
+
+**Phase 4c — GPS track storage** ✅
+- `TripDetector` records each GPS update during an auto-detected trip into
+  `ActiveTripState.points`; on trip end the full polyline is pushed to the
+  Supabase `trip_points` table.
+- `TripEditor` pulls points lazily and renders them on an embedded MapKit
+  polyline (`TripMapView`) with start/end annotations.
+
+**Phase 4d — Receipts** ✅
+- Inline "Receipts" section in the trip editor with a `PhotosPicker` for
+  attaching fuel / parking / toll / other receipts.
+- Photo is uploaded as JPEG to the Supabase Storage `receipts` bucket under
+  `<user_id>/<receipt_id>.jpg`, with a matching row in the `receipts` table.
+- Receipts list shows thumbnails (downloaded on-demand from Storage) with type,
+  amount and date.
+- Storage bucket + per-user RLS policies are created by
+  `supabase/migration-003-phase4.sql`.
+
 **Phase 3b — Automatic trip detection** ✅
 - `TripDetector` wakes the app on significant location changes, identifies the
   car via the connected Bluetooth audio device, and starts a trip with the

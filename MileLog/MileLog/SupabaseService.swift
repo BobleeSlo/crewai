@@ -100,6 +100,75 @@ final class SupabaseService: ObservableObject {
         return dtos.first?.toSettings()
     }
 
+    // MARK: - Audit log (Phase 4b)
+
+    func pushAuditEntry(tripID: UUID, field: String, oldValue: String, newValue: String) async throws {
+        let dto = TripAuditDTO(
+            trip_id: tripID,
+            user_id: try await currentUserId(),
+            field_name: field,
+            old_value: oldValue,
+            new_value: newValue
+        )
+        try await client.from("trip_audit_log").insert(dto).execute()
+    }
+
+    // MARK: - GPS track (Phase 4c)
+
+    func pushTripPoints(_ points: [TripPointDTO]) async throws {
+        guard !points.isEmpty else { return }
+        try await client.from("trip_points").insert(points).execute()
+    }
+
+    func pullTripPoints(for tripID: UUID) async throws -> [TripPointDTO] {
+        try await client.from("trip_points")
+            .select()
+            .eq("trip_id", value: tripID)
+            .order("recorded_at", ascending: true)
+            .execute()
+            .value
+    }
+
+    // MARK: - Receipts (Phase 4d)
+
+    func uploadReceiptPhoto(_ data: Data, fileName: String) async throws -> String {
+        let path = "\(try await currentUserId().uuidString)/\(fileName)"
+        try await client.storage
+            .from("receipts")
+            .upload(path: path, file: data, options: .init(contentType: "image/jpeg", upsert: true))
+        // Public URL (the bucket can be private; we generate a signed URL on demand instead, but
+        // for V1 we store the path and rely on the client to fetch via the SDK).
+        return path
+    }
+
+    func pushReceipt(_ receipt: Receipt, tripID: UUID?) async throws {
+        let dto = ReceiptDTO(
+            id: receipt.id,
+            user_id: try await currentUserId(),
+            trip_id: tripID,
+            receipt_type: receipt.type.rawValue,
+            amount_eur: receipt.amountEur,
+            vendor: receipt.vendor.isEmpty ? nil : receipt.vendor,
+            photo_url: receipt.photoPath.isEmpty ? nil : receipt.photoPath,
+            receipt_date: receipt.date,
+            notes: receipt.notes.isEmpty ? nil : receipt.notes
+        )
+        try await client.from("receipts").upsert(dto).execute()
+    }
+
+    func pullReceipts(for tripID: UUID) async throws -> [Receipt] {
+        let dtos: [ReceiptDTO] = try await client.from("receipts")
+            .select()
+            .eq("trip_id", value: tripID)
+            .execute()
+            .value
+        return dtos.compactMap { Receipt(from: $0) }
+    }
+
+    func downloadReceiptPhoto(path: String) async throws -> Data {
+        try await client.storage.from("receipts").download(path: path)
+    }
+
     // MARK: - Helpers
 
     private func currentUserId() async throws -> UUID {

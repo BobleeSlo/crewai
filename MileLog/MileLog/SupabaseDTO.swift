@@ -51,6 +51,7 @@ struct TripDTO: Codable {
     var distance_km: Double
     var notes: String?
     var is_locked: Bool
+    var locked_at: Date?
 
     init(from t: Trip, userId: UUID) {
         id = t.id
@@ -66,10 +67,11 @@ struct TripDTO: Codable {
         distance_km = t.distanceKm
         notes = t.notes
         is_locked = t.isLocked
+        locked_at = t.lockedAt
     }
 
     func toTrip() -> Trip {
-        Trip(
+        var trip = Trip(
             id: id,
             vehicleID: vehicle_id,
             type: TripType(rawValue: trip_type) ?? .business,
@@ -83,7 +85,38 @@ struct TripDTO: Codable {
             notes: notes ?? "",
             isLocked: is_locked
         )
+        trip.lockedAt = locked_at
+        return trip
     }
+}
+
+struct TripAuditDTO: Codable {
+    var trip_id: UUID
+    var user_id: UUID
+    var field_name: String
+    var old_value: String
+    var new_value: String
+}
+
+struct TripPointDTO: Codable {
+    var trip_id: UUID
+    var recorded_at: Date
+    var lat: Double
+    var lng: Double
+    var speed_kmh: Float?
+    var accuracy_m: Float?
+}
+
+struct ReceiptDTO: Codable {
+    var id: UUID
+    var user_id: UUID
+    var trip_id: UUID?
+    var receipt_type: String
+    var amount_eur: Double?
+    var vendor: String?
+    var photo_url: String?
+    var receipt_date: Date?
+    var notes: String?
 }
 
 struct UserSettingsDTO: Codable {
@@ -97,6 +130,7 @@ struct UserSettingsDTO: Codable {
     var work_lng: Double?
     var auto_detect_enabled: Bool
     var stationary_timeout_minutes: Int
+    var lock_after_days: Int
 
     init(from s: UserSettings, userId: UUID) {
         user_id = userId
@@ -109,6 +143,7 @@ struct UserSettingsDTO: Codable {
         work_lng = s.workLng
         auto_detect_enabled = s.autoDetectEnabled
         stationary_timeout_minutes = s.stationaryTimeoutMinutes
+        lock_after_days = s.lockAfterDays
     }
 
     func toSettings() -> UserSettings {
@@ -121,7 +156,8 @@ struct UserSettingsDTO: Codable {
             workLat: work_lat,
             workLng: work_lng,
             autoDetectEnabled: auto_detect_enabled,
-            stationaryTimeoutMinutes: stationary_timeout_minutes
+            stationaryTimeoutMinutes: stationary_timeout_minutes,
+            lockAfterDays: lock_after_days
         )
     }
 }

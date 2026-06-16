@@ -52,6 +52,18 @@ struct SettingsView: View {
                     }
                 }
 
+                Section("Compliance & locking") {
+                    Stepper(value: $store.settings.lockAfterDays, in: 1...90) {
+                        Text("Lock trips after \(store.settings.lockAfterDays) days")
+                    }
+                    Text("Once locked, a trip's mileage / date / vehicle become immutable. Edits to purpose, customer, and notes are still allowed but recorded in the audit log.")
+                        .font(.footnote)
+                        .foregroundColor(.secondary)
+                    Button("Apply locks now") {
+                        store.applyAutomaticLocks()
+                    }
+                }
+
                 Section("Home & Work") {
                     TextField("Home address", text: $homeInput)
                         .textInputAutocapitalization(.words)
@@ -161,6 +173,7 @@ struct SettingsView: View {
                 }
             }
             .onChange(of: store.settings.stationaryTimeoutMinutes) { _ in store.save() }
+            .onChange(of: store.settings.lockAfterDays) { _ in store.save() }
         }
     }
 

@@ -20,6 +20,9 @@ final class Store: ObservableObject {
     /// Set after the user signs in; when present, mutations are mirrored to Supabase.
     private weak var supabase: SupabaseService?
 
+    /// Read-only access for collaborators (TripDetector pushes GPS points + receipts).
+    var supabaseService: SupabaseService? { supabase }
+
     private let vehiclesURL: URL
     private let tripsURL: URL
     private let settingsURL: URL
@@ -36,6 +39,24 @@ final class Store: ObservableObject {
             vehicles = [Vehicle(name: "My car", licensePlate: "", type: .own)]
             save()
         }
+
+        // Lock any trips that have aged past the configured threshold.
+        applyAutomaticLocks()
+    }
+
+    /// Marks any unlocked trip older than `settings.lockAfterDays` as locked.
+    /// Locked trips become read-only for mileage / date / vehicle (enforced by
+    /// the Postgres trigger as well). Purpose / notes / customer stay editable.
+    func applyAutomaticLocks() {
+        let cutoff = Date().addingTimeInterval(-Double(settings.lockAfterDays) * 86_400)
+        var changed = false
+        for i in trips.indices where !trips[i].isLocked && trips[i].startedAt < cutoff {
+            trips[i].isLocked = true
+            trips[i].lockedAt = Date()
+            changed = true
+            push(trips[i])
+        }
+        if changed { save() }
     }
 
     // MARK: - Lookups
@@ -53,9 +74,32 @@ final class Store: ObservableObject {
 
     func updateTrip(_ trip: Trip) {
         guard let idx = trips.firstIndex(where: { $0.id == trip.id }) else { return }
+        let previous = trips[idx]
         trips[idx] = trip
         save()
         push(trip)
+
+        // Every edit to a locked trip is recorded for the compliance audit log.
+        if previous.isLocked { recordAuditDiff(from: previous, to: trip) }
+    }
+
+    private func recordAuditDiff(from old: Trip, to new: Trip) {
+        guard let supabase else { return }
+
+        var changes: [(field: String, old: String, new: String)] = []
+        if old.purpose      != new.purpose      { changes.append(("purpose", old.purpose, new.purpose)) }
+        if old.customerName != new.customerName { changes.append(("customer_name", old.customerName, new.customerName)) }
+        if old.notes        != new.notes        { changes.append(("notes", old.notes, new.notes)) }
+        if old.type         != new.type         { changes.append(("trip_type", old.type.rawValue, new.type.rawValue)) }
+
+        guard !changes.isEmpty else { return }
+        let tripID = new.id
+        Task {
+            for change in changes {
+                try? await supabase.pushAuditEntry(tripID: tripID, field: change.field,
+                                                   oldValue: change.old, newValue: change.new)
+            }
+        }
     }
 
     func deleteTrips(_ sectionTrips: [Trip], at offsets: IndexSet) {

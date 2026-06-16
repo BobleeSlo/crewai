@@ -15,6 +15,15 @@ struct ActiveTripState: Codable {
     var lastLng: Double
     var distanceKm: Double
     var lastMovementAt: Date
+    var points: [RecordedPoint] = []
+}
+
+struct RecordedPoint: Codable {
+    var recordedAt: Date
+    var lat: Double
+    var lng: Double
+    var speedKmh: Float
+    var accuracyM: Float
 }
 
 /// Auto-detect engine: wakes on significant location changes, identifies the
@@ -135,7 +144,14 @@ final class TripDetector: NSObject, ObservableObject {
             lastLat: location.coordinate.latitude,
             lastLng: location.coordinate.longitude,
             distanceKm: 0,
-            lastMovementAt: Date()
+            lastMovementAt: Date(),
+            points: [RecordedPoint(
+                recordedAt: location.timestamp,
+                lat: location.coordinate.latitude,
+                lng: location.coordinate.longitude,
+                speedKmh: Float(max(0, location.speed) * 3.6),
+                accuracyM: Float(location.horizontalAccuracy)
+            )]
         )
         activeTrip = state
         persistActiveTrip()
@@ -169,6 +185,13 @@ final class TripDetector: NSObject, ObservableObject {
             trip.distanceKm += metres / 1000.0
             trip.lastLat = location.coordinate.latitude
             trip.lastLng = location.coordinate.longitude
+            trip.points.append(RecordedPoint(
+                recordedAt: location.timestamp,
+                lat: location.coordinate.latitude,
+                lng: location.coordinate.longitude,
+                speedKmh: Float(max(0, location.speed) * 3.6),
+                accuracyM: Float(location.horizontalAccuracy)
+            ))
         }
         if location.speed > 0.5 {   // > ~1.8 km/h => actually moving
             trip.lastMovementAt = Date()
@@ -225,6 +248,19 @@ final class TripDetector: NSObject, ObservableObject {
         // Notify the user so they can quick-classify.
         if let notifications {
             Task { await notifications.sendClassifyNotification(for: trip) }
+        }
+
+        // Sync the GPS polyline to Supabase so the trip detail can render the route.
+        if let supabase = store.supabaseService {
+            let dtos = state.points.map {
+                TripPointDTO(
+                    trip_id: state.id,
+                    recorded_at: $0.recordedAt,
+                    lat: $0.lat, lng: $0.lng,
+                    speed_kmh: $0.speedKmh, accuracy_m: $0.accuracyM
+                )
+            }
+            Task { try? await supabase.pushTripPoints(dtos) }
         }
 
         // Reverse-geocode start/end addresses lazily and patch the saved trip.

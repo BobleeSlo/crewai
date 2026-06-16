@@ -95,6 +95,7 @@ struct Trip: Identifiable, Codable, Hashable {
     var distanceKm: Double
     var notes: String
     var isLocked: Bool
+    var lockedAt: Date? = nil
 
     /// Tax-free reimbursement only applies to business kilometres.
     func reimbursement(rate: Double) -> Double {
@@ -117,6 +118,7 @@ struct UserSettings: Codable, Equatable {
 
     var autoDetectEnabled: Bool = false
     var stationaryTimeoutMinutes: Int = 5
+    var lockAfterDays: Int = 7
 
     var hasHome: Bool { homeLat != nil && homeLng != nil }
     var hasWork: Bool { workLat != nil && workLng != nil }
@@ -130,7 +132,8 @@ struct UserSettings: Codable, Equatable {
         workLat: Double? = nil,
         workLng: Double? = nil,
         autoDetectEnabled: Bool = false,
-        stationaryTimeoutMinutes: Int = 5
+        stationaryTimeoutMinutes: Int = 5,
+        lockAfterDays: Int = 7
     ) {
         self.reimbursementRate = reimbursementRate
         self.homeAddress = homeAddress
@@ -141,13 +144,14 @@ struct UserSettings: Codable, Equatable {
         self.workLng = workLng
         self.autoDetectEnabled = autoDetectEnabled
         self.stationaryTimeoutMinutes = stationaryTimeoutMinutes
+        self.lockAfterDays = lockAfterDays
     }
 
     enum CodingKeys: String, CodingKey {
         case reimbursementRate
         case homeAddress, homeLat, homeLng
         case workAddress, workLat, workLng
-        case autoDetectEnabled, stationaryTimeoutMinutes
+        case autoDetectEnabled, stationaryTimeoutMinutes, lockAfterDays
     }
 
     init(from decoder: Decoder) throws {
@@ -161,6 +165,63 @@ struct UserSettings: Codable, Equatable {
         workLng = try c.decodeIfPresent(Double.self, forKey: .workLng)
         autoDetectEnabled = try c.decodeIfPresent(Bool.self, forKey: .autoDetectEnabled) ?? false
         stationaryTimeoutMinutes = try c.decodeIfPresent(Int.self, forKey: .stationaryTimeoutMinutes) ?? 5
+        lockAfterDays = try c.decodeIfPresent(Int.self, forKey: .lockAfterDays) ?? 7
+    }
+}
+
+// MARK: - Receipts (Phase 4d)
+
+enum ReceiptType: String, Codable, CaseIterable, Identifiable {
+    case fuel
+    case parking
+    case toll
+    case other
+
+    var id: String { rawValue }
+    var label: String {
+        switch self {
+        case .fuel:    return "Fuel"
+        case .parking: return "Parking"
+        case .toll:    return "Toll"
+        case .other:   return "Other"
+        }
+    }
+}
+
+struct Receipt: Identifiable, Hashable {
+    var id: UUID
+    var type: ReceiptType
+    var amountEur: Double?
+    var vendor: String
+    var photoPath: String     // Supabase Storage path (user_id/uuid.jpg)
+    var date: Date?
+    var notes: String
+
+    init(
+        id: UUID = UUID(),
+        type: ReceiptType = .fuel,
+        amountEur: Double? = nil,
+        vendor: String = "",
+        photoPath: String = "",
+        date: Date? = nil,
+        notes: String = ""
+    ) {
+        self.id = id; self.type = type; self.amountEur = amountEur
+        self.vendor = vendor; self.photoPath = photoPath
+        self.date = date; self.notes = notes
+    }
+
+    init?(from dto: ReceiptDTO) {
+        guard let type = ReceiptType(rawValue: dto.receipt_type) else { return nil }
+        self.init(
+            id: dto.id,
+            type: type,
+            amountEur: dto.amount_eur,
+            vendor: dto.vendor ?? "",
+            photoPath: dto.photo_url ?? "",
+            date: dto.receipt_date,
+            notes: dto.notes ?? ""
+        )
     }
 }
 

@@ -64,8 +64,15 @@ struct TripRow: View {
     var body: some View {
         HStack {
             VStack(alignment: .leading, spacing: 2) {
-                Text(trip.customerName.isEmpty ? trip.type.label : trip.customerName)
-                    .font(.headline)
+                HStack(spacing: 4) {
+                    Text(trip.customerName.isEmpty ? trip.type.label : trip.customerName)
+                        .font(.headline)
+                    if trip.isLocked {
+                        Image(systemName: "lock.fill")
+                            .font(.caption2)
+                            .foregroundColor(.orange)
+                    }
+                }
                 Text("\(trip.startedAt.formatted(date: .abbreviated, time: .omitted)) · \(store.vehicleName(trip.vehicleID))")
                     .font(.caption)
                     .foregroundColor(.secondary)
