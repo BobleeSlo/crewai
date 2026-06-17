@@ -65,6 +65,22 @@
           }
         }
       }
+    },
+    "NSMotionUsageDescription" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "MileLog uses motion to confirm you're actually driving before starting a trip — this prevents false trip starts when you walk or run."
+          }
+        },
+        "sl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "MileLog uporablja podatke o gibanju za potrditev, da dejansko vozite, preden začne snemati vožnjo — s tem preprečimo lažne začetke voženj med hojo ali tekom."
+          }
+        }
+      }
     }
   }
 }

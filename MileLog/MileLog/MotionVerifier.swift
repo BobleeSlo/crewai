@@ -13,7 +13,15 @@ final class MotionVerifier {
     private(set) var hasAutomotiveSignal = false
     private(set) var hasNonAutomotiveSignal = false
 
-    var isAvailable: Bool { CMMotionActivityManager.isActivityAvailable() }
+    /// Motion APIs crash the app instantly if NSMotionUsageDescription is
+    /// missing from Info.plist. We refuse to call them in that case and let
+    /// the detector fall back to speed-only verification.
+    var isAvailable: Bool {
+        guard Bundle.main.object(forInfoDictionaryKey: "NSMotionUsageDescription") != nil else {
+            return false
+        }
+        return CMMotionActivityManager.isActivityAvailable()
+    }
 
     func start() {
         guard isAvailable, !isMonitoring else { return }

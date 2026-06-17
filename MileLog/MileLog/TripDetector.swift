@@ -187,7 +187,11 @@ final class TripDetector: NSObject, ObservableObject {
         manager.allowsBackgroundLocationUpdates = true
         manager.pausesLocationUpdatesAutomatically = false
         manager.startUpdatingLocation()
-        motion.start()
+        if motion.isAvailable {
+            motion.start()
+        } else {
+            log.log("Motion API unavailable (missing NSMotionUsageDescription?); falling back to speed-only verification.", level: .warning)
+        }
 
         verificationDeadline?.invalidate()
         verificationDeadline = Timer.scheduledTimer(withTimeInterval: verificationSeconds,
