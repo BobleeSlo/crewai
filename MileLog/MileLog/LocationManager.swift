@@ -13,6 +13,10 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
     @Published var distanceKm: Double = 0
     @Published var authorized = false
 
+    /// Set by MileLogApp so the manual recorder refuses to start while
+    /// the auto detector has a trip in progress.
+    weak var detector: TripDetector?
+
     private(set) var startedAt: Date?
     private(set) var startLocation: CLLocation?
     private(set) var endLocation: CLLocation?
@@ -34,7 +38,14 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
         manager.requestWhenInUseAuthorization()
     }
 
-    func start() {
+    /// Returns false if the manual recorder refused to start because the
+    /// auto-detect engine is already tracking a trip — the UI should show
+    /// a warning in that case to avoid double-recording.
+    @discardableResult
+    func start() -> Bool {
+        if detector?.activeTrip != nil {
+            return false
+        }
         distanceKm = 0
         lastLocation = nil
         startLocation = nil
@@ -42,6 +53,7 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
         startedAt = Date()
         isTracking = true
         manager.startUpdatingLocation()
+        return true
     }
 
     func stop() {

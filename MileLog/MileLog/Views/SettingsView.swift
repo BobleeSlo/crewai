@@ -13,12 +13,18 @@ struct SettingsView: View {
     @State private var geocodeStatus: String?
     @State private var isGeocoding = false
 
-    // Monthly PDF export state
+    // Monthly own-car PDF export state
     @State private var pdfYear: Int = Calendar.current.component(.year, from: Date())
     @State private var pdfMonth: Int = Calendar.current.component(.month, from: Date())
     @State private var pdfResult: PDFReporter.Result?
 
-    private enum Field: Hashable { case rate, home, work }
+    // Company car logbook PDF state
+    @State private var logbookVehicleID: UUID?
+    @State private var logbookYear: Int = Calendar.current.component(.year, from: Date())
+    @State private var logbookMonth: Int = Calendar.current.component(.month, from: Date())
+    @State private var logbookResult: PDFReporter.Result?
+
+    private enum Field: Hashable { case rate, commuteRate, home, work }
     @FocusState private var focusedField: Field?
 
     var body: some View {
@@ -28,15 +34,28 @@ struct SettingsView: View {
                 // MARK: Reimbursement
                 Section {
                     HStack {
-                        Text("Rate per km")
+                        Text("Business rate")
                         Spacer()
                         TextField("0.43", value: $store.settings.reimbursementRate, format: .number)
                             .keyboardType(.decimalPad)
                             .multilineTextAlignment(.trailing)
                             .focused($focusedField, equals: .rate)
                             .frame(maxWidth: 80)
-                        Text("€").foregroundColor(.secondary)
+                        Text("€/km").foregroundColor(.secondary)
                     }
+                    HStack {
+                        Text("Commute rate")
+                        Spacer()
+                        TextField("0.18", value: $store.settings.commuteRate, format: .number)
+                            .keyboardType(.decimalPad)
+                            .multilineTextAlignment(.trailing)
+                            .focused($focusedField, equals: .commuteRate)
+                            .frame(maxWidth: 80)
+                        Text("€/km").foregroundColor(.secondary)
+                    }
+                    Text("Business rate applies to customer visits with your own car. Commute rate applies to Home ↔ Work trips. Private trips and company-car trips are excluded from the monthly own-car report.")
+                        .font(.footnote)
+                        .foregroundColor(.secondary)
                 } header: {
                     SectionHeaderLabel(title: "Reimbursement", systemImage: "eurosign.circle")
                 }
@@ -141,7 +160,7 @@ struct SettingsView: View {
                     SectionHeaderLabel(title: "Home & Work", systemImage: "house")
                 }
 
-                // MARK: Monthly PDF
+                // MARK: Monthly own-car PDF (for bookkeeping reimbursement)
                 Section {
                     Picker("Month", selection: $pdfMonth) {
                         ForEach(1...12, id: \.self) { m in
@@ -155,15 +174,15 @@ struct SettingsView: View {
                     }
 
                     Button {
-                        pdfResult = PDFReporter.generateMonthly(
+                        pdfResult = PDFReporter.generateMonthlyOwnCar(
                             trips: store.trips,
                             vehicleLookup: { store.vehicle($0) },
-                            rate: store.settings.reimbursementRate,
-                            year: pdfYear,
-                            month: pdfMonth
+                            businessRate: store.settings.reimbursementRate,
+                            commuteRate: store.settings.commuteRate,
+                            year: pdfYear, month: pdfMonth
                         )
                     } label: {
-                        Label("Generate PDF", systemImage: "doc.richtext")
+                        Label("Generate own-car report", systemImage: "doc.richtext")
                             .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(.borderedProminent)
@@ -171,15 +190,69 @@ struct SettingsView: View {
                     if let pdfResult {
                         ShareLink(item: pdfResult.url) {
                             Label(
-                                "Share PDF · \(pdfResult.tripCount) trips · \(String(format: "%.0f", pdfResult.businessKm)) km business",
+                                "Share PDF · \(pdfResult.tripCount) trips · \(String(format: "%.0f", pdfResult.headlineKm)) km",
                                 systemImage: "square.and.arrow.up"
                             )
                             .frame(maxWidth: .infinity)
                         }
                         .buttonStyle(.bordered)
                     }
+                    Text("Own-car business + commute trips only. Private trips and company-car trips are excluded — give this PDF to your accountant for monthly reimbursement claims.")
+                        .font(.footnote)
+                        .foregroundColor(.secondary)
                 } header: {
-                    SectionHeaderLabel(title: "Monthly PDF logbook", systemImage: "doc.text")
+                    SectionHeaderLabel(title: "Own-car monthly report", systemImage: "doc.text")
+                }
+
+                // MARK: Company car logbook (potni nalog)
+                if !companyVehicles.isEmpty {
+                    Section {
+                        Picker("Vehicle", selection: $logbookVehicleID) {
+                            ForEach(companyVehicles) { v in
+                                Text("\(v.name) \(v.licensePlate.isEmpty ? "" : "· \(v.licensePlate)")")
+                                    .tag(Optional(v.id))
+                            }
+                        }
+                        Picker("Month", selection: $logbookMonth) {
+                            ForEach(1...12, id: \.self) { m in
+                                Text(monthLabel(m)).tag(m)
+                            }
+                        }
+                        Picker("Year", selection: $logbookYear) {
+                            ForEach(yearRange, id: \.self) { y in
+                                Text(String(y)).tag(y)
+                            }
+                        }
+                        Button {
+                            guard let id = logbookVehicleID, let v = store.vehicle(id) else { return }
+                            logbookResult = PDFReporter.generateCompanyCarLogbook(
+                                trips: store.trips,
+                                vehicle: v,
+                                year: logbookYear, month: logbookMonth
+                            )
+                        } label: {
+                            Label("Generate potni nalog", systemImage: "book")
+                                .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(logbookVehicleID == nil)
+
+                        if let r = logbookResult {
+                            ShareLink(item: r.url) {
+                                Label(
+                                    "Share PDF · \(r.tripCount) trips · \(String(format: "%.0f", r.headlineKm)) km",
+                                    systemImage: "square.and.arrow.up"
+                                )
+                                .frame(maxWidth: .infinity)
+                            }
+                            .buttonStyle(.bordered)
+                        }
+                        Text("Slovenian potni nalog layout: date / departure / arrival / from / to / purpose / km. Odometer-start, odometer-end and signature columns are left blank so you can fill them by hand from the paper logbook.")
+                            .font(.footnote)
+                            .foregroundColor(.secondary)
+                    } header: {
+                        SectionHeaderLabel(title: "Company car · potni nalog", systemImage: "book")
+                    }
                 }
 
                 // MARK: CSV export
@@ -225,6 +298,10 @@ struct SettingsView: View {
             }
             .onChange(of: store.trips.count) { refreshExport() }
             .onChange(of: store.settings.reimbursementRate) {
+                store.save()
+                refreshExport()
+            }
+            .onChange(of: store.settings.commuteRate) {
                 store.save()
                 refreshExport()
             }
@@ -315,6 +392,11 @@ struct SettingsView: View {
             years.insert(cal.component(.year, from: trip.startedAt))
         }
         return years.sorted(by: >)
+    }
+
+    /// Vehicles eligible for the company-car logbook export.
+    private var companyVehicles: [Vehicle] {
+        store.vehicles.filter { $0.type == .company }
     }
 
     private func geocodeAddresses() async {

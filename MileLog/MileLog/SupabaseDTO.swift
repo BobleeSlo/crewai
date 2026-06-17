@@ -122,6 +122,7 @@ struct ReceiptDTO: Codable {
 struct UserSettingsDTO: Codable {
     var user_id: UUID
     var reimbursement_rate: Double
+    var commute_rate: Double?
     var home_address: String
     var home_lat: Double?
     var home_lng: Double?
@@ -135,6 +136,7 @@ struct UserSettingsDTO: Codable {
     init(from s: UserSettings, userId: UUID) {
         user_id = userId
         reimbursement_rate = s.reimbursementRate
+        commute_rate = s.commuteRate
         home_address = s.homeAddress
         home_lat = s.homeLat
         home_lng = s.homeLng
@@ -149,6 +151,7 @@ struct UserSettingsDTO: Codable {
     func toSettings() -> UserSettings {
         UserSettings(
             reimbursementRate: reimbursement_rate,
+            commuteRate: commute_rate ?? 0.18,
             homeAddress: home_address,
             homeLat: home_lat,
             homeLng: home_lng,

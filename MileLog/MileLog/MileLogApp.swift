@@ -18,9 +18,13 @@ struct MileLogApp: App {
         notifications.store = store
         notifications.detectionLog = log
         let detector = TripDetector(store: store, log: log, notifications: notifications)
+        let location = LocationManager()
+        // Wire the two recorders to each other so they can refuse to overlap.
+        location.detector = detector
+        detector.manualLocationManager = location
 
         _store = StateObject(wrappedValue: store)
-        _location = StateObject(wrappedValue: LocationManager())
+        _location = StateObject(wrappedValue: location)
         _supabase = StateObject(wrappedValue: SupabaseService())
         _detectionLog = StateObject(wrappedValue: log)
         _notifications = StateObject(wrappedValue: notifications)

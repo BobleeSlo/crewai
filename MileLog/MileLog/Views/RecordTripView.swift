@@ -8,6 +8,10 @@ struct RecordTripView: View {
     @State private var selectedVehicleID: UUID?
     @State private var tripToClassify: Trip?
 
+    /// True when the auto-detector has a trip in flight — manual button is
+    /// disabled in that case so the user can't double-record.
+    private var autoActive: Bool { detector.activeTrip != nil }
+
     var body: some View {
         NavigationStack {
             VStack(spacing: 28) {
@@ -52,11 +56,20 @@ struct RecordTripView: View {
                         .font(.title2.bold())
                         .frame(maxWidth: .infinity)
                         .padding()
-                        .background(location.isTracking ? Color.red : Color.green)
+                        .background(autoActive
+                                    ? Color.gray
+                                    : (location.isTracking ? Color.red : Color.green))
                         .foregroundColor(.white)
                         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
                 }
-                .disabled(selectedVehicleID == nil)
+                .disabled(selectedVehicleID == nil || autoActive)
+
+                if autoActive {
+                    Text("Auto-detect is already tracking a trip. Stop it from the green banner above or wait for it to end.")
+                        .font(.footnote)
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+                }
             }
             .padding()
             .navigationTitle("New trip")

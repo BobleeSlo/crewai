@@ -216,7 +216,10 @@ final class Store: ObservableObject {
                 trip.startAddress,
                 trip.endAddress,
                 String(format: "%.1f", trip.distanceKm),
-                String(format: "%.2f", trip.reimbursement(rate: reimbursementRate)),
+                String(format: "%.2f", trip.reimbursement(
+                    businessRate: settings.reimbursementRate,
+                    commuteRate: settings.commuteRate
+                )),
                 trip.notes
             ]
             rows.append(cols.map(Self.csvEscape).joined(separator: ","))

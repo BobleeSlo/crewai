@@ -98,16 +98,23 @@ struct Trip: Identifiable, Codable, Hashable {
     var isLocked: Bool
     var lockedAt: Date? = nil
 
-    /// Tax-free reimbursement only applies to business kilometres.
-    func reimbursement(rate: Double) -> Double {
-        type == .business ? distanceKm * rate : 0
+    /// Reimbursement uses different rates per trip type. Private trips never reimburse.
+    func reimbursement(businessRate: Double, commuteRate: Double) -> Double {
+        switch type {
+        case .business:    return distanceKm * businessRate
+        case .commute:     return distanceKm * commuteRate
+        case .privateTrip: return 0
+        }
     }
 }
 
 // MARK: - Per-user settings (persisted locally + synced to Supabase)
 
 struct UserSettings: Codable, Equatable {
+    /// €/km for business trips with own car (e.g. visiting customers).
     var reimbursementRate: Double = 0.43
+    /// €/km for commute trips with own car (Home ↔ Work). Typically lower.
+    var commuteRate: Double = 0.18
 
     var homeAddress: String = ""
     var homeLat: Double? = nil
@@ -126,6 +133,7 @@ struct UserSettings: Codable, Equatable {
 
     init(
         reimbursementRate: Double = 0.43,
+        commuteRate: Double = 0.18,
         homeAddress: String = "",
         homeLat: Double? = nil,
         homeLng: Double? = nil,
@@ -137,6 +145,7 @@ struct UserSettings: Codable, Equatable {
         lockAfterDays: Int = 7
     ) {
         self.reimbursementRate = reimbursementRate
+        self.commuteRate = commuteRate
         self.homeAddress = homeAddress
         self.homeLat = homeLat
         self.homeLng = homeLng
@@ -149,7 +158,7 @@ struct UserSettings: Codable, Equatable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case reimbursementRate
+        case reimbursementRate, commuteRate
         case homeAddress, homeLat, homeLng
         case workAddress, workLat, workLng
         case autoDetectEnabled, stationaryTimeoutMinutes, lockAfterDays
@@ -158,6 +167,7 @@ struct UserSettings: Codable, Equatable {
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         reimbursementRate = try c.decodeIfPresent(Double.self, forKey: .reimbursementRate) ?? 0.43
+        commuteRate = try c.decodeIfPresent(Double.self, forKey: .commuteRate) ?? 0.18
         homeAddress = try c.decodeIfPresent(String.self, forKey: .homeAddress) ?? ""
         homeLat = try c.decodeIfPresent(Double.self, forKey: .homeLat)
         homeLng = try c.decodeIfPresent(Double.self, forKey: .homeLng)

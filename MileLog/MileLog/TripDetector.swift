@@ -42,12 +42,30 @@ final class TripDetector: NSObject, ObservableObject {
     @Published private(set) var permission: CLAuthorizationStatus = .notDetermined
 
     private let manager = CLLocationManager()
+    private let motion = MotionVerifier()
     private unowned let store: Store
     private unowned let log: DetectionLog
     private weak var notifications: NotificationManager?
+    /// Set by MileLogApp so the detector can refuse to start while the user
+    /// is manually recording a trip with the Start/Stop button.
+    weak var manualLocationManager: LocationManager?
 
     private let activeTripURL: URL
     private var stationaryTimer: Timer?
+
+    // Verification (candidate-trip) state — before we commit to a real Trip
+    // we wait for either a sustained driving speed or CoreMotion's
+    // "automotive" signal, otherwise the wake was just a walk / run.
+    private struct Candidate {
+        let startedAt: Date
+        let startLocation: CLLocation
+        var maxSpeedKmh: Double
+        let confirmedByBluetooth: Bool
+    }
+    private var candidate: Candidate?
+    private var verificationDeadline: Timer?
+    private let speedConfirmKmh: Double = 25
+    private let verificationSeconds: TimeInterval = 90
 
     init(store: Store, log: DetectionLog, notifications: NotificationManager) {
         self.store = store
@@ -114,31 +132,123 @@ final class TripDetector: NSObject, ObservableObject {
     private func stopMonitoring() {
         manager.stopMonitoringSignificantLocationChanges()
         manager.stopUpdatingLocation()
+        motion.stop()
+        verificationDeadline?.invalidate()
+        verificationDeadline = nil
+        candidate = nil
         NotificationCenter.default.removeObserver(self, name: AVAudioSession.routeChangeNotification, object: nil)
         isEnabled = false
         log.log("Auto-detect OFF.", level: .info)
     }
 
-    // MARK: - Trip start
+    // MARK: - Trip start (with candidate/verification phase)
 
     private func handleSignificantLocation(_ location: CLLocation) {
-        log.log(String(format: "Significant change @ %.4f,%.4f", location.coordinate.latitude, location.coordinate.longitude))
-        if activeTrip == nil { startTrip(at: location) }
-    }
+        log.log(String(format: "Significant change @ %.4f,%.4f",
+                       location.coordinate.latitude, location.coordinate.longitude))
 
-    private func startTrip(at location: CLLocation) {
-        let device = AudioRoute.currentBluetoothOutput()
-        let vehicle = matchVehicle(for: device) ?? store.vehicles.first
-        guard let vehicle else {
-            log.log("No vehicles configured; skipping auto trip.", level: .warning)
+        // Hard guards — never run two trips at the same time.
+        if activeTrip != nil {
+            log.log("Skipped: trip already active.")
+            return
+        }
+        if candidate != nil {
+            log.log("Skipped: candidate already pending verification.")
+            return
+        }
+        if let manual = manualLocationManager, manual.isTracking {
+            log.log("Skipped: manual recording is in progress.", level: .warning)
             return
         }
 
+        let device = AudioRoute.currentBluetoothOutput()
+        let knownVehicle = matchVehicle(for: device)
+
+        // Fast path: if the phone is already connected to a known car's
+        // Bluetooth, that's high-confidence — start the trip immediately.
+        if let vehicle = knownVehicle {
+            commitTripStart(at: location, startedAt: Date(),
+                            vehicle: vehicle, device: device)
+            return
+        }
+
+        // Slow path: no BT match. Enter verification — gather speed + CoreMotion
+        // for up to `verificationSeconds`. Only then decide if this is really a drive.
+        beginVerification(at: location)
+    }
+
+    private func beginVerification(at location: CLLocation) {
+        candidate = Candidate(
+            startedAt: Date(),
+            startLocation: location,
+            maxSpeedKmh: 0,
+            confirmedByBluetooth: false
+        )
+        manager.allowsBackgroundLocationUpdates = true
+        manager.pausesLocationUpdatesAutomatically = false
+        manager.startUpdatingLocation()
+        motion.start()
+
+        verificationDeadline?.invalidate()
+        verificationDeadline = Timer.scheduledTimer(withTimeInterval: verificationSeconds,
+                                                    repeats: false) { [weak self] _ in
+            Task { @MainActor in self?.finishVerification() }
+        }
+        log.log("Verification started — need speed > \(Int(speedConfirmKmh)) km/h or automotive activity.")
+    }
+
+    /// Called on every active-GPS update while in candidate mode.
+    private func updateVerification(with location: CLLocation) {
+        guard var c = candidate else { return }
+        let kmh = max(0, location.speed) * 3.6
+        if kmh > c.maxSpeedKmh { c.maxSpeedKmh = kmh }
+        candidate = c
+
+        // Early confirmation: don't wait the full 90s if we already see driving.
+        if kmh > speedConfirmKmh || motion.hasAutomotiveSignal {
+            finishVerification(early: true)
+        }
+    }
+
+    private func finishVerification(early: Bool = false) {
+        guard let c = candidate else { return }
+        verificationDeadline?.invalidate()
+        verificationDeadline = nil
+
+        let speedOK = c.maxSpeedKmh > speedConfirmKmh
+        let autoOK  = motion.hasAutomotiveSignal
+        let walkingDetected = motion.hasNonAutomotiveSignal && !autoOK
+
+        if (speedOK || autoOK) && !walkingDetected {
+            log.log(String(format: "Verification PASSED (%@): max %.1f km/h, automotive=%@",
+                           early ? "early" : "timeout",
+                           c.maxSpeedKmh, autoOK ? "yes" : "no"), level: .info)
+            candidate = nil
+            motion.stop()
+            // Re-read BT now (it may have connected while we were verifying).
+            let device = AudioRoute.currentBluetoothOutput()
+            let vehicle = matchVehicle(for: device) ?? fallbackVehicle()
+            guard let vehicle else { return }
+            commitTripStart(at: c.startLocation, startedAt: c.startedAt,
+                            vehicle: vehicle, device: device)
+        } else {
+            log.log(String(format: "Verification FAILED: max %.1f km/h, automotive=%@, walking=%@ — discarding.",
+                           c.maxSpeedKmh,
+                           autoOK ? "yes" : "no",
+                           walkingDetected ? "yes" : "no"), level: .info)
+            candidate = nil
+            motion.stop()
+            manager.stopUpdatingLocation()
+        }
+    }
+
+    private func commitTripStart(at location: CLLocation, startedAt: Date,
+                                 vehicle: Vehicle, device: BluetoothAudioDevice?) {
         let state = ActiveTripState(
             id: UUID(),
             vehicleID: vehicle.id,
             audioDeviceUID: device?.uid,
-            startedAt: Date(),
+            startedAt: startedAt,
             startLat: location.coordinate.latitude,
             startLng: location.coordinate.longitude,
             lastLat: location.coordinate.latitude,
@@ -162,6 +272,16 @@ final class TripDetector: NSObject, ObservableObject {
 
         let bt = device.map { "BT \($0.name)" } ?? "no BT"
         log.log("Trip started: \(vehicle.name) [\(bt)]", level: .info)
+    }
+
+    /// When no BT match is available, prefer the vehicle from the user's most
+    /// recent trip instead of arbitrarily picking the first one in the list.
+    private func fallbackVehicle() -> Vehicle? {
+        if let latest = store.trips.sorted(by: { $0.startedAt > $1.startedAt }).first,
+           let v = store.vehicle(latest.vehicleID) {
+            return v
+        }
+        return store.vehicles.first
     }
 
     private func matchVehicle(for device: BluetoothAudioDevice?) -> Vehicle? {
@@ -274,6 +394,7 @@ final class TripDetector: NSObject, ObservableObject {
         }
 
         manager.stopUpdatingLocation()
+        motion.stop()
         activeTrip = nil
         clearPersistedActiveTrip()
     }
@@ -337,10 +458,12 @@ extension TripDetector: CLLocationManagerDelegate {
     nonisolated func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
         guard let loc = locations.last else { return }
         Task { @MainActor in
-            if self.activeTrip == nil {
-                self.handleSignificantLocation(loc)
-            } else {
+            if self.activeTrip != nil {
                 self.updateActiveTrip(with: loc)
+            } else if self.candidate != nil {
+                self.updateVerification(with: loc)
+            } else {
+                self.handleSignificantLocation(loc)
             }
         }
     }

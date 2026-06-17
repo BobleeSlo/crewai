@@ -90,7 +90,10 @@ struct TripEditor: View {
 
             Section {
                 LabeledContent("Reimbursement",
-                               value: String(format: "€ %.2f", trip.reimbursement(rate: store.reimbursementRate)))
+                               value: String(format: "€ %.2f", trip.reimbursement(
+                                businessRate: store.settings.reimbursementRate,
+                                commuteRate: store.settings.commuteRate
+                               )))
             }
         }
         .navigationTitle(isNew ? "Classify trip" : "Edit trip")

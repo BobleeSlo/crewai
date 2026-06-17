@@ -129,6 +129,39 @@ for free with any Apple ID.
 - `TripEditor` pulls points lazily and renders them on an embedded MapKit
   polyline (`TripMapView`) with start/end annotations.
 
+**Phase 6 — Real-world fixes** ✅
+- **Trip-start verification**: significant-location wakes no longer commit to
+  a trip immediately. If a known car BT is connected → start (high confidence).
+  Otherwise enter a 90-second verification phase that requires either
+  `> 25 km/h` sustained speed or a CoreMotion "automotive" signal — filters
+  out walks, runs, cycling.
+- **Single active trip enforced**: TripDetector refuses to start while another
+  trip is active *or* while the manual LocationManager is recording; the
+  manual Start button is disabled while the auto detector has a trip in flight.
+- **Smarter vehicle fallback**: when no BT match is available, the detector
+  uses the vehicle from the user's most recent trip instead of arbitrarily
+  picking the first vehicle.
+- **Two reimbursement rates**: `UserSettings.reimbursementRate` (business) +
+  new `UserSettings.commuteRate`. `Trip.reimbursement(businessRate:commuteRate:)`
+  picks per type; private trips reimburse 0.
+- **Own-car monthly report**: `PDFReporter.generateMonthlyOwnCar` filters to
+  own vehicles + business/commute only, with separate totals and totals line.
+  Renamed Settings section to "Own-car monthly report".
+- **Company-car logbook (potni nalog)**: new `PDFReporter.generateCompanyCarLogbook`
+  draws the standard Slovenian layout (Datum / Ura od / Ura do / Od / Do /
+  Namen / km zač. / km kon. / km) with blank odometer + signature blocks for
+  handwriting. New "Company car · potni nalog" Settings section, surfaced
+  only when at least one vehicle is type `.company`.
+- **Migration**: `supabase/migration-004-phase6.sql` adds the `commute_rate`
+  column.
+- **App icon source**: `assets-source/AppIcon.svg` (speedometer / km motif on
+  blue gradient). Convert to a 1024×1024 PNG via any SVG tool, then feed into
+  appicon.co (or drop directly into Xcode's `AppIcon` asset catalog and let
+  Xcode generate the sizes).
+- **Required Info.plist addition**: `Privacy - Motion Usage Description` ↔
+  *"MileLog uses motion to confirm you're actually driving before starting
+  a trip — this prevents false trip starts when you walk or run."*
+
 **Phase 5 — Localization (Slovenian)** ✅
 - `Localizable.xcstrings` (String Catalog) contains every user-facing string
   with English source + Slovenian translation.
