@@ -12,6 +12,7 @@ struct VehicleDTO: Codable {
     var bluetooth_name: String?
     var bluetooth_uid: String?
     var default_trip_type: String?
+    var is_active: Bool?
 
     init(from v: Vehicle, userId: UUID) {
         id = v.id
@@ -22,6 +23,7 @@ struct VehicleDTO: Codable {
         bluetooth_name = v.bluetoothName.isEmpty ? nil : v.bluetoothName
         bluetooth_uid = v.bluetoothUID.isEmpty ? nil : v.bluetoothUID
         default_trip_type = v.defaultTripType.rawValue
+        is_active = v.isActive
     }
 
     func toVehicle() -> Vehicle {
@@ -32,7 +34,8 @@ struct VehicleDTO: Codable {
             type: VehicleType(rawValue: vehicle_type) ?? .own,
             bluetoothName: bluetooth_name ?? "",
             bluetoothUID: bluetooth_uid ?? "",
-            defaultTripType: TripType(rawValue: default_trip_type ?? "") ?? .business
+            defaultTripType: TripType(rawValue: default_trip_type ?? "") ?? .business,
+            isActive: is_active ?? true
         )
     }
 }

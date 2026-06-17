@@ -129,6 +129,30 @@ for free with any Apple ID.
 - `TripEditor` pulls points lazily and renders them on an embedded MapKit
   polyline (`TripMapView`) with start/end annotations.
 
+**Phase 6b — Vehicle lifecycle (archive / restore / delete)** ✅
+- `Vehicle.isActive` flag mirrors the existing `vehicles.is_active` column.
+  Active vehicles appear in pickers (Record tab, Logbook export, Trip
+  editor). Archived ones stay in the database so historical trips keep
+  their reference but don't clutter day-to-day flows.
+- New `Store.deleteVehicle(_:)` does the smart split: **archive (soft
+  delete)** if the vehicle has trips, **hard delete** if it doesn't.
+  `Store.restoreVehicle(_:)` reactivates an archived vehicle.
+- Explicit **Delete vehicle** button in `VehicleEditView` with a
+  confirmation dialog whose copy adapts based on whether trips reference
+  the vehicle.
+- `VehiclesView` redesigned:
+  - Each active row shows a vehicle-type icon and the relative
+    last-used date ("2 days ago", "4 months ago", "Never used").
+  - An inline orange suggestion banner appears under any active
+    vehicle unused for 90+ days: *"Not used in 3+ months. Archive?"* —
+    one-tap Archive button.
+  - Separate **Archived** section at the bottom shows soft-deleted
+    vehicles dimmed with strikethrough; swipe actions offer Restore
+    or permanent Delete (with a confirm alert).
+- Record-tab vehicle picker, Settings logbook vehicle picker, and the
+  default new-trip vehicle all switched from `store.vehicles` →
+  `store.activeVehicles`.
+
 **Phase 6a — Pre-PDF trip selection** ✅
 - Tapping "Review trips and generate" in either report section navigates to
   `ReportSelectionView` — a checklist of all eligible trips for the period

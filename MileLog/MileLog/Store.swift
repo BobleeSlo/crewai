@@ -64,6 +64,31 @@ final class Store: ObservableObject {
     func vehicle(_ id: UUID) -> Vehicle? { vehicles.first { $0.id == id } }
     func vehicleName(_ id: UUID) -> String { vehicle(id)?.name ?? "Unknown vehicle" }
 
+    /// Active vehicles only — used by pickers and report selectors so the
+    /// user doesn't see archived ones in flows where they'd be confusing.
+    var activeVehicles: [Vehicle] {
+        vehicles.filter { $0.isActive }
+    }
+
+    var archivedVehicles: [Vehicle] {
+        vehicles.filter { !$0.isActive }
+    }
+
+    /// Most recent trip date for a given vehicle, or nil if never used.
+    func lastUsed(_ vehicleID: UUID) -> Date? {
+        trips
+            .filter { $0.vehicleID == vehicleID }
+            .map { $0.startedAt }
+            .max()
+    }
+
+    /// True when an active vehicle hasn't been used in `days` days AND
+    /// has at least one historical trip (don't nag about brand-new cars).
+    func shouldSuggestArchive(_ vehicle: Vehicle, days: Int = 90) -> Bool {
+        guard vehicle.isActive, let last = lastUsed(vehicle.id) else { return false }
+        return Date().timeIntervalSince(last) > Double(days) * 86_400
+    }
+
     // MARK: - Trips
 
     func addTrip(_ trip: Trip) {
@@ -154,13 +179,45 @@ final class Store: ObservableObject {
     }
 
     func deleteVehicle(at offsets: IndexSet) {
-        let removed = offsets.map { vehicles[$0].id }
-        vehicles.remove(atOffsets: offsets)
-        save()
-        if let supabase {
-            Task {
-                for id in removed { try? await supabase.deleteVehicle(id: id) }
+        for offset in offsets {
+            let vehicle = vehicles[offset]
+            // Route through deleteVehicle so we get the soft/hard split.
+            _ = deleteVehicle(vehicle)
+        }
+    }
+
+    /// Soft-deletes (archives) the vehicle if it has any trips, so historical
+    /// references in `trips.vehicle_id` keep resolving. Hard-deletes a vehicle
+    /// with no trips. Returns `.hard` or `.soft` so callers can show the
+    /// right confirmation copy.
+    enum DeletionMode { case soft, hard }
+
+    @discardableResult
+    func deleteVehicle(_ vehicle: Vehicle) -> DeletionMode {
+        let hasTrips = trips.contains { $0.vehicleID == vehicle.id }
+
+        if hasTrips {
+            if let idx = vehicles.firstIndex(where: { $0.id == vehicle.id }) {
+                vehicles[idx].isActive = false
+                save()
+                push(vehicles[idx])
             }
+            return .soft
+        } else {
+            vehicles.removeAll { $0.id == vehicle.id }
+            save()
+            if let supabase {
+                Task { try? await supabase.deleteVehicle(id: vehicle.id) }
+            }
+            return .hard
+        }
+    }
+
+    func restoreVehicle(_ vehicle: Vehicle) {
+        if let idx = vehicles.firstIndex(where: { $0.id == vehicle.id }) {
+            vehicles[idx].isActive = true
+            save()
+            push(vehicles[idx])
         }
     }
 

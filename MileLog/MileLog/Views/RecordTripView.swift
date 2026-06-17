@@ -22,7 +22,7 @@ struct RecordTripView: View {
                 Spacer()
 
                 Picker("Vehicle", selection: $selectedVehicleID) {
-                    ForEach(store.vehicles) { vehicle in
+                    ForEach(store.activeVehicles) { vehicle in
                         Text("\(vehicle.name) · \(vehicle.type.label)")
                             .tag(Optional(vehicle.id))
                     }
@@ -76,7 +76,7 @@ struct RecordTripView: View {
             .onAppear {
                 location.requestPermission()
                 if selectedVehicleID == nil {
-                    selectedVehicleID = store.vehicles.first?.id
+                    selectedVehicleID = store.activeVehicles.first?.id
                 }
             }
             .sheet(item: $tripToClassify) { trip in

@@ -360,8 +360,10 @@ struct SettingsView: View {
     }
 
     /// Vehicles eligible for the company-car logbook export.
+    /// Archived vehicles are hidden — the user has to restore one first
+    /// before they can run a logbook against it.
     private var companyVehicles: [Vehicle] {
-        store.vehicles.filter { $0.type == .company }
+        store.activeVehicles.filter { $0.type == .company }
     }
 
     // MARK: - Selection destinations

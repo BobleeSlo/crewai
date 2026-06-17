@@ -46,6 +46,11 @@ struct Vehicle: Identifiable, Codable, Hashable {
     var bluetoothUID: String = ""
     var defaultTripType: TripType = .business
 
+    /// Soft-delete flag. Inactive vehicles stay in the database so historical
+    /// trips keep their reference, but are hidden from pickers and report
+    /// selectors. Users can restore or permanently delete from the Vehicles list.
+    var isActive: Bool = true
+
     init(
         id: UUID = UUID(),
         name: String,
@@ -53,7 +58,8 @@ struct Vehicle: Identifiable, Codable, Hashable {
         type: VehicleType,
         bluetoothName: String = "",
         bluetoothUID: String = "",
-        defaultTripType: TripType = .business
+        defaultTripType: TripType = .business,
+        isActive: Bool = true
     ) {
         self.id = id
         self.name = name
@@ -62,11 +68,12 @@ struct Vehicle: Identifiable, Codable, Hashable {
         self.bluetoothName = bluetoothName
         self.bluetoothUID = bluetoothUID
         self.defaultTripType = defaultTripType
+        self.isActive = isActive
     }
 
     enum CodingKeys: String, CodingKey {
         case id, name, licensePlate, type
-        case bluetoothName, bluetoothUID, defaultTripType
+        case bluetoothName, bluetoothUID, defaultTripType, isActive
     }
 
     init(from decoder: Decoder) throws {
@@ -78,6 +85,7 @@ struct Vehicle: Identifiable, Codable, Hashable {
         bluetoothName = try c.decodeIfPresent(String.self, forKey: .bluetoothName) ?? ""
         bluetoothUID = try c.decodeIfPresent(String.self, forKey: .bluetoothUID) ?? ""
         defaultTripType = try c.decodeIfPresent(TripType.self, forKey: .defaultTripType) ?? .business
+        isActive = try c.decodeIfPresent(Bool.self, forKey: .isActive) ?? true
     }
 }
 

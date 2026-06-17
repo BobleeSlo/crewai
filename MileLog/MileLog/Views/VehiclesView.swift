@@ -5,23 +5,40 @@ struct VehiclesView: View {
     @State private var editingVehicle: Vehicle?
     @State private var showingAdd = false
 
+    /// Confirmation alert state for "Delete permanently" on an archived vehicle.
+    @State private var permanentDeleteCandidate: Vehicle?
+
     var body: some View {
         NavigationStack {
             List {
-                ForEach(store.vehicles) { vehicle in
-                    Button {
-                        editingVehicle = vehicle
-                    } label: {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(vehicle.name).font(.headline)
-                            Text(subtitle(for: vehicle))
-                                .font(.caption)
-                                .foregroundColor(.secondary)
+                if !store.activeVehicles.isEmpty {
+                    Section {
+                        ForEach(store.activeVehicles) { vehicle in
+                            vehicleRow(vehicle)
+                        }
+                        .onDelete { offsets in
+                            // Translate offsets in the filtered active list back to the full list.
+                            let ids = offsets.map { store.activeVehicles[$0].id }
+                            for id in ids {
+                                if let v = store.vehicle(id) { _ = store.deleteVehicle(v) }
+                            }
                         }
                     }
-                    .tint(.primary)
                 }
-                .onDelete { store.deleteVehicle(at: $0) }
+
+                if !store.archivedVehicles.isEmpty {
+                    Section {
+                        ForEach(store.archivedVehicles) { vehicle in
+                            archivedRow(vehicle)
+                        }
+                    } header: {
+                        SectionHeaderLabel(title: "Archived",
+                                           systemImage: "archivebox")
+                    } footer: {
+                        Text("Archived vehicles stay attached to their historical trips and reports but don't appear in pickers. Restore or delete permanently if no trips reference them.")
+                            .font(.caption)
+                    }
+                }
             }
             .navigationTitle("Vehicles")
             .toolbar {
@@ -40,15 +57,128 @@ struct VehiclesView: View {
                     isNew: true
                 )
             }
+            .alert("Delete permanently?",
+                   isPresented: Binding(
+                    get: { permanentDeleteCandidate != nil },
+                    set: { if !$0 { permanentDeleteCandidate = nil } }
+                   ),
+                   presenting: permanentDeleteCandidate
+            ) { vehicle in
+                Button("Delete", role: .destructive) {
+                    _ = store.deleteVehicle(vehicle)
+                }
+                Button("Cancel", role: .cancel) { }
+            } message: { vehicle in
+                Text("\"\(vehicle.name)\" will be removed from your device and Supabase. Only do this if no trips reference this vehicle.")
+            }
         }
     }
 
+    // MARK: - Active vehicle row
+
+    @ViewBuilder
+    private func vehicleRow(_ vehicle: Vehicle) -> some View {
+        Button {
+            editingVehicle = vehicle
+        } label: {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 8) {
+                    Image(systemName: vehicle.type == .company ? "car.2.fill" : "car.fill")
+                        .foregroundColor(.accentColor)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(vehicle.name).font(.headline)
+                        Text(subtitle(for: vehicle))
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                    Spacer()
+                    Text(lastUsedLabel(vehicle))
+                        .font(.caption2.monospacedDigit())
+                        .foregroundColor(.secondary)
+                }
+
+                if store.shouldSuggestArchive(vehicle) {
+                    archiveSuggestion(for: vehicle)
+                }
+            }
+        }
+        .tint(.primary)
+    }
+
+    @ViewBuilder
+    private func archiveSuggestion(for vehicle: Vehicle) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: "exclamationmark.bubble")
+                .foregroundColor(.orange)
+                .font(.footnote)
+            Text("Not used in 3+ months. Archive to hide from pickers?")
+                .font(.footnote)
+                .foregroundColor(.secondary)
+            Spacer()
+            Button("Archive") {
+                _ = store.deleteVehicle(vehicle)
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .tint(.orange)
+        }
+        .padding(8)
+        .background(Color.orange.opacity(0.1))
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+    }
+
+    // MARK: - Archived vehicle row
+
+    @ViewBuilder
+    private func archivedRow(_ vehicle: Vehicle) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: "archivebox.fill")
+                .foregroundColor(.secondary)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(vehicle.name)
+                    .strikethrough()
+                    .foregroundColor(.secondary)
+                Text(subtitle(for: vehicle))
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+            Spacer()
+        }
+        .swipeActions(edge: .trailing) {
+            Button(role: .destructive) {
+                permanentDeleteCandidate = vehicle
+            } label: {
+                Label("Delete", systemImage: "trash")
+            }
+            Button {
+                store.restoreVehicle(vehicle)
+            } label: {
+                Label("Restore", systemImage: "arrow.uturn.backward")
+            }
+            .tint(.blue)
+        }
+    }
+
+    // MARK: - Helpers
+
     private func subtitle(for vehicle: Vehicle) -> String {
-        vehicle.licensePlate.isEmpty
+        let base = vehicle.licensePlate.isEmpty
             ? vehicle.type.label
             : "\(vehicle.type.label) · \(vehicle.licensePlate)"
+        return base
+    }
+
+    private func lastUsedLabel(_ vehicle: Vehicle) -> String {
+        guard let last = store.lastUsed(vehicle.id) else {
+            return "Never used"
+        }
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .abbreviated
+        return formatter.localizedString(for: last, relativeTo: Date())
     }
 }
+
+// MARK: - VehicleEditView ---------------------------------------------------
 
 struct VehicleEditView: View {
     @EnvironmentObject var store: Store
@@ -58,6 +188,8 @@ struct VehicleEditView: View {
     let isNew: Bool
 
     @State private var pairingMessage: String?
+    @State private var showingDeleteConfirm = false
+    @State private var deletionMessage: String?
 
     var body: some View {
         NavigationStack {
@@ -125,6 +257,20 @@ struct VehicleEditView: View {
                         .font(.footnote)
                         .foregroundColor(.secondary)
                 }
+
+                if !isNew {
+                    Section {
+                        Button(role: .destructive) {
+                            showingDeleteConfirm = true
+                        } label: {
+                            Label("Delete vehicle", systemImage: "trash")
+                                .frame(maxWidth: .infinity)
+                        }
+                    } footer: {
+                        Text("If this vehicle has trips, it will be archived (hidden from pickers but kept in your records). Otherwise it is removed permanently.")
+                            .font(.caption)
+                    }
+                }
             }
             .navigationTitle(isNew ? "Add vehicle" : "Edit vehicle")
             .navigationBarTitleDisplayMode(.inline)
@@ -143,6 +289,27 @@ struct VehicleEditView: View {
                 }
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
+                }
+            }
+            .confirmationDialog(
+                "Delete \"\(vehicle.name)\"?",
+                isPresented: $showingDeleteConfirm,
+                titleVisibility: .visible
+            ) {
+                Button("Delete", role: .destructive) {
+                    let mode = store.deleteVehicle(vehicle)
+                    deletionMessage = mode == .soft
+                        ? "Vehicle archived (kept for trip history)."
+                        : "Vehicle deleted."
+                    // Pop after a brief pause so the user sees what happened.
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { dismiss() }
+                }
+                Button("Cancel", role: .cancel) { }
+            } message: {
+                if store.trips.contains(where: { $0.vehicleID == vehicle.id }) {
+                    Text("This vehicle has trips attached. It will be archived so those records stay intact — you can restore it later from the Vehicles list.")
+                } else {
+                    Text("This vehicle has no trips and will be removed permanently.")
                 }
             }
         }
