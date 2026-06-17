@@ -41,6 +41,7 @@ enum PDFReporter {
                 let c = cal.dateComponents([.year, .month], from: $0.startedAt)
                 guard c.year == year && c.month == month else { return false }
                 guard vehicleLookup($0.vehicleID)?.type == .own else { return false }
+                guard $0.distanceKm > 0 else { return false }   // skip zero-km junk
                 return $0.type == .business || $0.type == .commute
             }
             .sorted { $0.startedAt < $1.startedAt }
@@ -57,7 +58,9 @@ enum PDFReporter {
         return trips
             .filter {
                 let c = cal.dateComponents([.year, .month], from: $0.startedAt)
-                return c.year == year && c.month == month && $0.vehicleID == vehicle.id
+                guard c.year == year && c.month == month else { return false }
+                guard $0.distanceKm > 0 else { return false }   // skip zero-km junk
+                return $0.vehicleID == vehicle.id
             }
             .sorted { $0.startedAt < $1.startedAt }
     }

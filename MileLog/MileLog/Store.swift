@@ -206,7 +206,8 @@ final class Store: ObservableObject {
         df.dateFormat = "yyyy-MM-dd"
 
         var rows = ["Date,Vehicle,Type,Customer,Purpose,From,To,Distance (km),Reimbursement (EUR),Notes"]
-        for trip in trips.sorted(by: { $0.startedAt < $1.startedAt }) {
+        // Zero-distance trips are ignored in exports (auto-detector noise / aborted manual trips).
+        for trip in trips.filter({ $0.distanceKm > 0 }).sorted(by: { $0.startedAt < $1.startedAt }) {
             let cols = [
                 df.string(from: trip.startedAt),
                 vehicleName(trip.vehicleID),

@@ -337,6 +337,19 @@ final class TripDetector: NSObject, ObservableObject {
 
     private func endTrip(reason: String) {
         guard let state = activeTrip else { return }
+
+        // Discard zero-distance trips entirely — they're auto-detector noise
+        // (the wake fired but the car never moved, or it ended before any
+        // GPS update landed). Saving them just clutters the trips list.
+        if state.distanceKm <= 0 {
+            log.log("Trip discarded (\(reason)): 0 km recorded — no movement.", level: .info)
+            manager.stopUpdatingLocation()
+            motion.stop()
+            activeTrip = nil
+            clearPersistedActiveTrip()
+            return
+        }
+
         let vehicle = store.vehicle(state.vehicleID) ?? store.vehicles.first
             ?? Vehicle(name: "Unknown", licensePlate: "", type: .own)
 
