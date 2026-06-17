@@ -129,6 +129,18 @@ for free with any Apple ID.
 - `TripEditor` pulls points lazily and renders them on an embedded MapKit
   polyline (`TripMapView`) with start/end annotations.
 
+**Phase 6a — Pre-PDF trip selection** ✅
+- Tapping "Review trips and generate" in either report section navigates to
+  `ReportSelectionView` — a checklist of all eligible trips for the period
+  with a per-row checkmark + bulk filters (Select all / Deselect all /
+  Business only / Commute only).
+- The PDF is generated only after the user confirms the subset; ShareLink
+  appears inline below the list.
+- `PDFReporter` got `ownCarCandidates(...)` and `companyLogbookCandidates(...)`
+  helpers so the selection view can pre-compute the eligible set without
+  duplicating filter logic. `generateMonthlyOwnCar` and
+  `generateCompanyCarLogbook` now consume already-filtered trip arrays.
+
 **Phase 6 — Real-world fixes** ✅
 - **Trip-start verification**: significant-location wakes no longer commit to
   a trip immediately. If a known car BT is connected → start (high confidence).

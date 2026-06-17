@@ -13,16 +13,14 @@ struct SettingsView: View {
     @State private var geocodeStatus: String?
     @State private var isGeocoding = false
 
-    // Monthly own-car PDF export state
+    // Monthly own-car PDF export state (PDF result lives in ReportSelectionView)
     @State private var pdfYear: Int = Calendar.current.component(.year, from: Date())
     @State private var pdfMonth: Int = Calendar.current.component(.month, from: Date())
-    @State private var pdfResult: PDFReporter.Result?
 
     // Company car logbook PDF state
     @State private var logbookVehicleID: UUID?
     @State private var logbookYear: Int = Calendar.current.component(.year, from: Date())
     @State private var logbookMonth: Int = Calendar.current.component(.month, from: Date())
-    @State private var logbookResult: PDFReporter.Result?
 
     private enum Field: Hashable { case rate, commuteRate, home, work }
     @FocusState private var focusedField: Field?
@@ -173,31 +171,14 @@ struct SettingsView: View {
                         }
                     }
 
-                    Button {
-                        pdfResult = PDFReporter.generateMonthlyOwnCar(
-                            trips: store.trips,
-                            vehicleLookup: { store.vehicle($0) },
-                            businessRate: store.settings.reimbursementRate,
-                            commuteRate: store.settings.commuteRate,
-                            year: pdfYear, month: pdfMonth
-                        )
+                    NavigationLink {
+                        ownCarSelection
                     } label: {
-                        Label("Generate own-car report", systemImage: "doc.richtext")
+                        Label("Review trips and generate", systemImage: "list.bullet.rectangle.portrait")
                             .frame(maxWidth: .infinity)
                     }
-                    .buttonStyle(.borderedProminent)
 
-                    if let pdfResult {
-                        ShareLink(item: pdfResult.url) {
-                            Label(
-                                "Share PDF · \(pdfResult.tripCount) trips · \(String(format: "%.0f", pdfResult.headlineKm)) km",
-                                systemImage: "square.and.arrow.up"
-                            )
-                            .frame(maxWidth: .infinity)
-                        }
-                        .buttonStyle(.bordered)
-                    }
-                    Text("Own-car business + commute trips only. Private trips and company-car trips are excluded — give this PDF to your accountant for monthly reimbursement claims.")
+                    Text("Own-car business + commute trips only. Private trips and company-car trips are excluded. On the next screen you can check / uncheck individual trips before generating the PDF for your accountant.")
                         .font(.footnote)
                         .foregroundColor(.secondary)
                 } header: {
@@ -223,31 +204,15 @@ struct SettingsView: View {
                                 Text(String(y)).tag(y)
                             }
                         }
-                        Button {
-                            guard let id = logbookVehicleID, let v = store.vehicle(id) else { return }
-                            logbookResult = PDFReporter.generateCompanyCarLogbook(
-                                trips: store.trips,
-                                vehicle: v,
-                                year: logbookYear, month: logbookMonth
-                            )
+                        NavigationLink {
+                            logbookSelection
                         } label: {
-                            Label("Generate potni nalog", systemImage: "book")
+                            Label("Review trips and generate", systemImage: "list.bullet.rectangle.portrait")
                                 .frame(maxWidth: .infinity)
                         }
-                        .buttonStyle(.borderedProminent)
                         .disabled(logbookVehicleID == nil)
 
-                        if let r = logbookResult {
-                            ShareLink(item: r.url) {
-                                Label(
-                                    "Share PDF · \(r.tripCount) trips · \(String(format: "%.0f", r.headlineKm)) km",
-                                    systemImage: "square.and.arrow.up"
-                                )
-                                .frame(maxWidth: .infinity)
-                            }
-                            .buttonStyle(.bordered)
-                        }
-                        Text("Slovenian potni nalog layout: date / departure / arrival / from / to / purpose / km. Odometer-start, odometer-end and signature columns are left blank so you can fill them by hand from the paper logbook.")
+                        Text("Slovenian potni nalog layout: date / departure / arrival / from / to / purpose / km. Odometer-start, odometer-end and signature columns are left blank so you can fill them by hand. Review and select trips on the next screen.")
                             .font(.footnote)
                             .foregroundColor(.secondary)
                     } header: {
@@ -397,6 +362,98 @@ struct SettingsView: View {
     /// Vehicles eligible for the company-car logbook export.
     private var companyVehicles: [Vehicle] {
         store.vehicles.filter { $0.type == .company }
+    }
+
+    // MARK: - Selection destinations
+
+    @ViewBuilder
+    private var ownCarSelection: some View {
+        let candidates = PDFReporter.ownCarCandidates(
+            trips: store.trips,
+            vehicleLookup: { store.vehicle($0) },
+            year: pdfYear, month: pdfMonth
+        )
+        let businessRate = store.settings.reimbursementRate
+        let commuteRate = store.settings.commuteRate
+        let year = pdfYear, month = pdfMonth
+
+        ReportSelectionView(
+            title: "\(monthLabel(month)) \(String(year))",
+            candidateTrips: candidates,
+            formatRow: { trip in AnyView(ownCarRow(trip: trip)) },
+            generate: { chosen in
+                PDFReporter.generateMonthlyOwnCar(
+                    trips: chosen,
+                    vehicleLookup: { store.vehicle($0) },
+                    businessRate: businessRate,
+                    commuteRate: commuteRate,
+                    year: year, month: month
+                )
+            }
+        )
+    }
+
+    @ViewBuilder
+    private var logbookSelection: some View {
+        if let id = logbookVehicleID, let vehicle = store.vehicle(id) {
+            let candidates = PDFReporter.companyLogbookCandidates(
+                trips: store.trips,
+                vehicle: vehicle,
+                year: logbookYear, month: logbookMonth
+            )
+            let year = logbookYear, month = logbookMonth
+            let captured = vehicle
+
+            ReportSelectionView(
+                title: "\(vehicle.name) · \(monthLabel(month)) \(String(year))",
+                candidateTrips: candidates,
+                formatRow: { trip in AnyView(logbookRow(trip: trip)) },
+                generate: { chosen in
+                    PDFReporter.generateCompanyCarLogbook(
+                        trips: chosen,
+                        vehicle: captured,
+                        year: year, month: month
+                    )
+                }
+            )
+        }
+    }
+
+    @ViewBuilder
+    private func ownCarRow(trip: Trip) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 6) {
+                Text(trip.startedAt.formatted(date: .abbreviated, time: .omitted))
+                    .font(.subheadline.weight(.medium))
+                Text(trip.type.label)
+                    .font(.caption2)
+                    .padding(.horizontal, 6).padding(.vertical, 2)
+                    .background((trip.type == .business ? Color.blue : Color.orange).opacity(0.2))
+                    .clipShape(Capsule())
+            }
+            if !trip.customerName.isEmpty {
+                Text(trip.customerName).font(.caption).foregroundColor(.secondary)
+            }
+            Text(String(format: "%.1f km", trip.distanceKm))
+                .font(.caption2.monospacedDigit())
+                .foregroundColor(.secondary)
+        }
+    }
+
+    @ViewBuilder
+    private func logbookRow(trip: Trip) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(trip.startedAt.formatted(date: .abbreviated, time: .shortened))
+                .font(.subheadline.weight(.medium))
+            if !trip.customerName.isEmpty || !trip.purpose.isEmpty {
+                Text(trip.customerName.isEmpty ? trip.purpose : trip.customerName)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+            Text(String(format: "%.1f km", trip.distanceKm))
+                .font(.caption2.monospacedDigit())
+                .foregroundColor(.secondary)
+        }
     }
 
     private func geocodeAddresses() async {

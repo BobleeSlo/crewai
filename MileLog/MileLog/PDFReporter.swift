@@ -26,6 +26,42 @@ enum PDFReporter {
         let headlineKm: Double
     }
 
+    // MARK: - Candidate filters (callable by the selection screen) ---------
+
+    /// Trips eligible for the own-car monthly reimbursement report:
+    /// vehicles of type .own, business or commute, within the chosen month.
+    static func ownCarCandidates(
+        trips: [Trip],
+        vehicleLookup: (UUID) -> Vehicle?,
+        year: Int, month: Int
+    ) -> [Trip] {
+        let cal = Calendar.current
+        return trips
+            .filter {
+                let c = cal.dateComponents([.year, .month], from: $0.startedAt)
+                guard c.year == year && c.month == month else { return false }
+                guard vehicleLookup($0.vehicleID)?.type == .own else { return false }
+                return $0.type == .business || $0.type == .commute
+            }
+            .sorted { $0.startedAt < $1.startedAt }
+    }
+
+    /// Trips eligible for the company-car potni nalog: a single chosen
+    /// company vehicle, within the chosen month.
+    static func companyLogbookCandidates(
+        trips: [Trip],
+        vehicle: Vehicle,
+        year: Int, month: Int
+    ) -> [Trip] {
+        let cal = Calendar.current
+        return trips
+            .filter {
+                let c = cal.dateComponents([.year, .month], from: $0.startedAt)
+                return c.year == year && c.month == month && $0.vehicleID == vehicle.id
+            }
+            .sorted { $0.startedAt < $1.startedAt }
+    }
+
     // MARK: - Monthly own-car report ----------------------------------------
 
     private static let ownCarColumnWidths: [CGFloat] = [60, 80, 70, 100, 100, 50, 60]
@@ -41,6 +77,9 @@ enum PDFReporter {
         ]
     }
 
+    /// Generates the monthly own-car PDF for the already-filtered `trips`.
+    /// The caller (typically the report-selection screen) decides which
+    /// candidate trips are included.
     static func generateMonthlyOwnCar(
         trips: [Trip],
         vehicleLookup: (UUID) -> Vehicle?,
@@ -49,15 +88,7 @@ enum PDFReporter {
         year: Int,
         month: Int
     ) -> Result? {
-        let cal = Calendar.current
-        let monthly = trips
-            .filter {
-                let c = cal.dateComponents([.year, .month], from: $0.startedAt)
-                guard c.year == year && c.month == month else { return false }
-                guard vehicleLookup($0.vehicleID)?.type == .own else { return false }
-                return $0.type == .business || $0.type == .commute
-            }
-            .sorted { $0.startedAt < $1.startedAt }
+        let monthly = trips.sorted { $0.startedAt < $1.startedAt }
 
         let businessTrips = monthly.filter { $0.type == .business }
         let commuteTrips = monthly.filter { $0.type == .commute }
@@ -133,19 +164,15 @@ enum PDFReporter {
         ["#", "Datum", "Ura od", "Ura do", "Od", "Do", "Namen", "km zač.", "km kon.", "km"]
     }
 
+    /// Generates the potni nalog for the already-filtered `trips`. Caller
+    /// is responsible for filtering to a single vehicle + period.
     static func generateCompanyCarLogbook(
         trips: [Trip],
         vehicle: Vehicle,
         year: Int,
         month: Int
     ) -> Result? {
-        let cal = Calendar.current
-        let monthly = trips
-            .filter {
-                let c = cal.dateComponents([.year, .month], from: $0.startedAt)
-                return c.year == year && c.month == month && $0.vehicleID == vehicle.id
-            }
-            .sorted { $0.startedAt < $1.startedAt }
+        let monthly = trips.sorted { $0.startedAt < $1.startedAt }
 
         let totalKm = monthly.reduce(0) { $0 + $1.distanceKm }
         let monthLabel = monthName(year: year, month: month)
