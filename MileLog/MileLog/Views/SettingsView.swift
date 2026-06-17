@@ -419,40 +419,84 @@ struct SettingsView: View {
         }
     }
 
+    /// Three-column row used in both selection screens: [date + type chip] |
+    /// customer-or-purpose (flexible width, prominent) | km (right-aligned).
     @ViewBuilder
     private func ownCarRow(trip: Trip) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: 6) {
+        HStack(alignment: .top, spacing: 10) {
+            VStack(alignment: .leading, spacing: 4) {
                 Text(trip.startedAt.formatted(date: .abbreviated, time: .omitted))
                     .font(.subheadline.weight(.medium))
                 Text(trip.type.label)
-                    .font(.caption2)
+                    .font(.caption2.weight(.semibold))
                     .padding(.horizontal, 6).padding(.vertical, 2)
-                    .background((trip.type == .business ? Color.blue : Color.orange).opacity(0.2))
+                    .background(typeBadgeColor(trip.type).opacity(0.2))
+                    .foregroundColor(typeBadgeColor(trip.type))
                     .clipShape(Capsule())
             }
-            if !trip.customerName.isEmpty {
-                Text(trip.customerName).font(.caption).foregroundColor(.secondary)
+            .frame(width: 84, alignment: .leading)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(customerOrPurpose(trip))
+                    .font(.subheadline)
+                    .foregroundColor(hasCustomerOrPurpose(trip) ? .primary : .secondary)
+                    .lineLimit(2)
+                if !trip.customerName.isEmpty && !trip.purpose.isEmpty {
+                    Text(trip.purpose)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
             Text(String(format: "%.1f km", trip.distanceKm))
-                .font(.caption2.monospacedDigit())
+                .font(.subheadline.weight(.medium).monospacedDigit())
                 .foregroundColor(.secondary)
         }
     }
 
     @ViewBuilder
     private func logbookRow(trip: Trip) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(trip.startedAt.formatted(date: .abbreviated, time: .shortened))
-                .font(.subheadline.weight(.medium))
-            if !trip.customerName.isEmpty || !trip.purpose.isEmpty {
-                Text(trip.customerName.isEmpty ? trip.purpose : trip.customerName)
-                    .font(.caption)
+        HStack(alignment: .top, spacing: 10) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(trip.startedAt.formatted(date: .abbreviated, time: .omitted))
+                    .font(.subheadline.weight(.medium))
+                Text(trip.startedAt.formatted(date: .omitted, time: .shortened))
+                    .font(.caption2.monospacedDigit())
                     .foregroundColor(.secondary)
             }
+            .frame(width: 84, alignment: .leading)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(customerOrPurpose(trip))
+                    .font(.subheadline)
+                    .foregroundColor(hasCustomerOrPurpose(trip) ? .primary : .secondary)
+                    .lineLimit(2)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
             Text(String(format: "%.1f km", trip.distanceKm))
-                .font(.caption2.monospacedDigit())
+                .font(.subheadline.weight(.medium).monospacedDigit())
                 .foregroundColor(.secondary)
+        }
+    }
+
+    private func customerOrPurpose(_ trip: Trip) -> String {
+        if !trip.customerName.isEmpty { return trip.customerName }
+        if !trip.purpose.isEmpty      { return trip.purpose }
+        return "—"
+    }
+
+    private func hasCustomerOrPurpose(_ trip: Trip) -> Bool {
+        !trip.customerName.isEmpty || !trip.purpose.isEmpty
+    }
+
+    private func typeBadgeColor(_ type: TripType) -> Color {
+        switch type {
+        case .business:    return .blue
+        case .commute:     return .orange
+        case .privateTrip: return .gray
         }
     }
 

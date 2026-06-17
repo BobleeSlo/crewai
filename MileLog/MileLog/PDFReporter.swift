@@ -67,12 +67,15 @@ enum PDFReporter {
 
     // MARK: - Monthly own-car report ----------------------------------------
 
-    private static let ownCarColumnWidths: [CGFloat] = [60, 80, 70, 100, 100, 50, 60]
+    // Date · Vehicle · Type · Customer / Purpose · From · To · km · €
+    // Widths sum to ~500 — well within page width minus 2 * 36pt margin (523).
+    private static let ownCarColumnWidths: [CGFloat] = [55, 65, 55, 100, 75, 75, 35, 50]
     private static var ownCarColumnTitles: [String] {
         [
             String(localized: "Date"),
             String(localized: "Vehicle"),
             String(localized: "Type"),
+            String(localized: "Customer / Purpose"),
             String(localized: "From"),
             String(localized: "To"),
             "km",
@@ -362,12 +365,20 @@ enum PDFReporter {
             businessRate: businessRate, commuteRate: commuteRate
         ))
 
+        // Prefer customer; fall back to purpose; never show "—" inside a PDF cell.
+        let customerOrPurpose: String = {
+            if !trip.customerName.isEmpty { return trip.customerName }
+            if !trip.purpose.isEmpty      { return trip.purpose }
+            return ""
+        }()
+
         let cells = [
             df.string(from: trip.startedAt),
-            vehicle?.name ?? "—",
+            truncate(vehicle?.name ?? "—", length: 14),
             trip.type.label,
-            truncate(trip.startAddress, length: 22),
-            truncate(trip.endAddress, length: 22),
+            truncate(customerOrPurpose, length: 22),
+            truncate(trip.startAddress, length: 16),
+            truncate(trip.endAddress, length: 16),
             String(format: "%.1f", trip.distanceKm),
             eur
         ]
@@ -394,6 +405,13 @@ enum PDFReporter {
         let tf = DateFormatter()
         tf.dateFormat = "HH:mm"
 
+        // Namen column: prefer customer name when present, otherwise the
+        // free-text purpose, so the column always carries the most useful label.
+        let namen: String = {
+            if !trip.customerName.isEmpty { return trip.customerName }
+            return trip.purpose
+        }()
+
         let cells = [
             "\(index)",
             df.string(from: trip.startedAt),
@@ -401,7 +419,7 @@ enum PDFReporter {
             tf.string(from: trip.endedAt),
             truncate(trip.startAddress, length: 18),
             truncate(trip.endAddress, length: 18),
-            truncate(trip.customerName.isEmpty ? trip.purpose : trip.customerName, length: 18),
+            truncate(namen, length: 18),
             "",                                              // odometer start — handwritten
             "",                                              // odometer end   — handwritten
             String(format: "%.1f", trip.distanceKm)
