@@ -191,7 +191,6 @@ struct RecordTripView: View {
             .shadow(color: buttonShadowColor, radius: 12, x: 0, y: 6)
         }
         .disabled(selectedVehicleID == nil)
-        .padding(.horizontal, 4)
     }
 
     @ViewBuilder

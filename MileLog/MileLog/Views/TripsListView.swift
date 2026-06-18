@@ -38,7 +38,6 @@ struct TripsListView: View {
                     }
                 } header: {
                     MonthSectionHeader(section: section)
-                        .padding(.horizontal, -8) // align to list edge
                 }
             }
         }
