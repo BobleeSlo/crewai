@@ -33,6 +33,35 @@ enum TripType: String, Codable, CaseIterable, Identifiable {
     }
 }
 
+/// GPS accuracy / power trade-off. Mapped to CLLocationManager settings by
+/// `EnergyMode+CoreLocation.swift`.
+enum EnergyMode: String, Codable, CaseIterable, Identifiable {
+    case lowPower     = "low_power"
+    case balanced     = "balanced"
+    case highAccuracy = "high_accuracy"
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .lowPower:     return String(localized: "Low Power")
+        case .balanced:     return String(localized: "Balanced")
+        case .highAccuracy: return String(localized: "High Accuracy")
+        }
+    }
+
+    var summary: String {
+        switch self {
+        case .lowPower:
+            return String(localized: "≈100 m accuracy, max battery savings. Best for long highway drives.")
+        case .balanced:
+            return String(localized: "≈10 m accuracy. Recommended for most users — good track quality, moderate battery use.")
+        case .highAccuracy:
+            return String(localized: "Best available accuracy. For dense city driving where exact routes matter. Higher battery use.")
+        }
+    }
+}
+
 // MARK: - Vehicle
 
 struct Vehicle: Identifiable, Codable, Hashable {
@@ -139,6 +168,7 @@ struct UserSettings: Codable, Equatable {
     var autoDetectEnabled: Bool = false
     var stationaryTimeoutMinutes: Int = 5
     var lockAfterDays: Int = 7
+    var energyMode: EnergyMode = .balanced
 
     var hasHome: Bool { homeLat != nil && homeLng != nil }
     var hasWork: Bool { workLat != nil && workLng != nil }
@@ -154,7 +184,8 @@ struct UserSettings: Codable, Equatable {
         workLng: Double? = nil,
         autoDetectEnabled: Bool = false,
         stationaryTimeoutMinutes: Int = 5,
-        lockAfterDays: Int = 7
+        lockAfterDays: Int = 7,
+        energyMode: EnergyMode = .balanced
     ) {
         self.reimbursementRate = reimbursementRate
         self.commuteRate = commuteRate
@@ -167,13 +198,14 @@ struct UserSettings: Codable, Equatable {
         self.autoDetectEnabled = autoDetectEnabled
         self.stationaryTimeoutMinutes = stationaryTimeoutMinutes
         self.lockAfterDays = lockAfterDays
+        self.energyMode = energyMode
     }
 
     enum CodingKeys: String, CodingKey {
         case reimbursementRate, commuteRate
         case homeAddress, homeLat, homeLng
         case workAddress, workLat, workLng
-        case autoDetectEnabled, stationaryTimeoutMinutes, lockAfterDays
+        case autoDetectEnabled, stationaryTimeoutMinutes, lockAfterDays, energyMode
     }
 
     init(from decoder: Decoder) throws {
@@ -189,6 +221,7 @@ struct UserSettings: Codable, Equatable {
         autoDetectEnabled = try c.decodeIfPresent(Bool.self, forKey: .autoDetectEnabled) ?? false
         stationaryTimeoutMinutes = try c.decodeIfPresent(Int.self, forKey: .stationaryTimeoutMinutes) ?? 5
         lockAfterDays = try c.decodeIfPresent(Int.self, forKey: .lockAfterDays) ?? 7
+        energyMode = try c.decodeIfPresent(EnergyMode.self, forKey: .energyMode) ?? .balanced
     }
 }
 

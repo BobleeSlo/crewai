@@ -141,6 +141,7 @@ struct UserSettingsDTO: Codable {
     var auto_detect_enabled: Bool
     var stationary_timeout_minutes: Int
     var lock_after_days: Int
+    var energy_mode: String?
 
     init(from s: UserSettings, userId: UUID) {
         user_id = userId
@@ -155,6 +156,7 @@ struct UserSettingsDTO: Codable {
         auto_detect_enabled = s.autoDetectEnabled
         stationary_timeout_minutes = s.stationaryTimeoutMinutes
         lock_after_days = s.lockAfterDays
+        energy_mode = s.energyMode.rawValue
     }
 
     func toSettings() -> UserSettings {
@@ -169,7 +171,8 @@ struct UserSettingsDTO: Codable {
             workLng: work_lng,
             autoDetectEnabled: auto_detect_enabled,
             stationaryTimeoutMinutes: stationary_timeout_minutes,
-            lockAfterDays: lock_after_days
+            lockAfterDays: lock_after_days,
+            energyMode: EnergyMode(rawValue: energy_mode ?? "") ?? .balanced
         )
     }
 }

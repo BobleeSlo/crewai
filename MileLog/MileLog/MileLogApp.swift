@@ -22,6 +22,9 @@ struct MileLogApp: App {
         // Wire the two recorders to each other so they can refuse to overlap.
         location.detector = detector
         detector.manualLocationManager = location
+        // Sync the persisted energy preset into the manual recorder
+        // (TripDetector reads its own preset from store.settings on each trip).
+        location.apply(energyMode: store.settings.energyMode)
 
         _store = StateObject(wrappedValue: store)
         _location = StateObject(wrappedValue: location)

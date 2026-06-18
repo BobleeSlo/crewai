@@ -129,6 +129,25 @@ for free with any Apple ID.
 - `TripEditor` pulls points lazily and renders them on an embedded MapKit
   polyline (`TripMapView`) with start/end annotations.
 
+**Phase 8a — Energy mode toggle** ✅
+- New `EnergyMode` enum in `Models.swift` (`lowPower` / `balanced` /
+  `highAccuracy`) with localized labels and summaries.
+- `UserSettings.energyMode` persists the preset locally and via the new
+  `user_settings.energy_mode` column (`supabase/migration-005-energy-mode.sql`
+  with a CHECK constraint on the three rawValues).
+- `EnergyMode+CoreLocation.swift` maps each mode to concrete
+  `CLLocationManager` settings:
+    - lowPower:     `kCLLocationAccuracyHundredMeters` + 50 m filter + iOS auto-pause ON
+    - balanced:     `kCLLocationAccuracyNearestTenMeters` + 10 m filter + auto-pause OFF
+    - highAccuracy: `kCLLocationAccuracyBest` + 5 m filter + auto-pause OFF
+- `TripDetector` applies the preset whenever it starts updating location
+  (initial wake, verification phase, confirmed trip start). Detection log
+  records which preset was active for each trip.
+- `LocationManager` gets an `apply(energyMode:)` method; SettingsView's
+  picker pushes changes immediately so the manual recorder is in sync.
+- New **Energy mode** section in Settings with a segmented picker + a
+  dynamic per-mode explanation footer.
+
 **Phase 8 — Battery, smart customer fill, camera OCR, polished Save** ✅
 - **Save buttons** in `TripEditor` and `VehicleEditView` are now branded
   gradient capsules with a clearly disabled state — replaces the iOS 26

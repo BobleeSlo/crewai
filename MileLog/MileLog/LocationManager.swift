@@ -17,6 +17,10 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
     /// the auto detector has a trip in progress.
     weak var detector: TripDetector?
 
+    /// Current battery/accuracy preset. SettingsView calls
+    /// `apply(energyMode:)` whenever the user changes the picker.
+    private(set) var energyMode: EnergyMode = .balanced
+
     private(set) var startedAt: Date?
     private(set) var startLocation: CLLocation?
     private(set) var endLocation: CLLocation?
@@ -27,13 +31,15 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
     override init() {
         super.init()
         manager.delegate = self
-        // Battery: switched from BestForNavigation (continuous high-power
-        // GPS) to NearestTenMeters. 10m accuracy is more than enough for
-        // road distance accumulation and uses substantially less power
-        // — important because the manual recorder may be left running.
-        manager.desiredAccuracy = kCLLocationAccuracyNearestTenMeters
-        manager.distanceFilter = 20          // metres between updates
         manager.activityType = .automotiveNavigation
+        // Apply the default preset; SettingsView keeps this in sync via
+        // apply(energyMode:) when the user changes the picker.
+        energyMode.apply(to: manager)
+    }
+
+    func apply(energyMode: EnergyMode) {
+        self.energyMode = energyMode
+        energyMode.apply(to: manager)
     }
 
     // MARK: - Control

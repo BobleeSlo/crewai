@@ -5,6 +5,7 @@ struct SettingsView: View {
     @EnvironmentObject var store: Store
     @EnvironmentObject var supabase: SupabaseService
     @EnvironmentObject var detector: TripDetector
+    @EnvironmentObject var location: LocationManager
     @EnvironmentObject var notifications: NotificationManager
     @State private var exportURL: URL?
 
@@ -91,6 +92,27 @@ struct SettingsView: View {
                     }
                 } header: {
                     SectionHeaderLabel(title: "Auto-detect trips", systemImage: "dot.radiowaves.left.and.right")
+                }
+
+                // MARK: Energy mode
+                Section {
+                    Picker(selection: $store.settings.energyMode) {
+                        ForEach(EnergyMode.allCases) { mode in
+                            Text(mode.label).tag(mode)
+                        }
+                    } label: {
+                        Label("Mode", systemImage: "bolt.fill")
+                    }
+                    .pickerStyle(.segmented)
+
+                    Text(store.settings.energyMode.summary)
+                        .font(.footnote)
+                        .foregroundColor(.secondary)
+                } header: {
+                    SectionHeaderLabel(title: "Energy mode", systemImage: "battery.75")
+                } footer: {
+                    Text("Switch presets any time — changes take effect on the next trip start.")
+                        .font(.caption)
                 }
 
                 // MARK: Compliance & locking
@@ -283,6 +305,11 @@ struct SettingsView: View {
             }
             .onChange(of: store.settings.stationaryTimeoutMinutes) { store.save() }
             .onChange(of: store.settings.lockAfterDays) { store.save() }
+            .onChange(of: store.settings.energyMode) { _, newMode in
+                store.save()
+                location.apply(energyMode: newMode)
+                // TripDetector picks up the new mode automatically on next trip start.
+            }
         }
     }
 

@@ -78,12 +78,10 @@ final class TripDetector: NSObject, ObservableObject {
         super.init()
         manager.delegate = self
         manager.activityType = .automotiveNavigation
-        // Battery: NearestTenMeters is more than enough for road distance
-        // tracking; kCLLocationAccuracyBest pulls power continuously and
-        // adds no value at highway speeds. distanceFilter cuts updates
-        // in stop-and-go traffic by 5–10x.
-        manager.desiredAccuracy = kCLLocationAccuracyNearestTenMeters
-        manager.distanceFilter = 10
+        // Battery / accuracy trade-off is owned by UserSettings.energyMode —
+        // apply the current preset here, and re-apply on every trip start
+        // so changes from Settings take effect immediately.
+        store.settings.energyMode.apply(to: manager)
         permission = manager.authorizationStatus
 
         restoreActiveTripIfAny()
@@ -190,7 +188,7 @@ final class TripDetector: NSObject, ObservableObject {
             confirmedByBluetooth: false
         )
         manager.allowsBackgroundLocationUpdates = true
-        manager.pausesLocationUpdatesAutomatically = false
+        store.settings.energyMode.apply(to: manager)
         manager.startUpdatingLocation()
         if motion.isAvailable {
             motion.start()
@@ -276,11 +274,11 @@ final class TripDetector: NSObject, ObservableObject {
         persistActiveTrip()
 
         manager.allowsBackgroundLocationUpdates = true
-        manager.pausesLocationUpdatesAutomatically = false
+        store.settings.energyMode.apply(to: manager)
         manager.startUpdatingLocation()
 
         let bt = device.map { "BT \($0.name)" } ?? "no BT"
-        log.log("Trip started: \(vehicle.name) [\(bt)]", level: .info)
+        log.log("Trip started: \(vehicle.name) [\(bt)] · \(store.settings.energyMode.label)", level: .info)
     }
 
     /// When no BT match is available, prefer the vehicle from the user's most
