@@ -1,4 +1,5 @@
 import SwiftUI
+import CoreLocation
 
 struct RecordTripView: View {
     @EnvironmentObject var store: Store
