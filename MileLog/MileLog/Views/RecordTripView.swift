@@ -36,28 +36,31 @@ struct RecordTripView: View {
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: 24) {
-                vehicleSelector
+            ScrollView(showsIndicators: false) {
+                VStack(spacing: 28) {
+                    vehicleSelector
+                        .padding(.top, 8)
 
-                Spacer(minLength: 0)
+                    heroBadge
+                        .padding(.vertical, 8)
 
-                heroBadge
+                    if !autoActive { primaryButton }
 
-                Spacer(minLength: 0)
-
-                if !autoActive { primaryButton }
-
-                if autoActive {
-                    autoActiveHint
-                } else if !location.authorized && !location.isTracking {
-                    permissionHint
+                    if autoActive {
+                        autoActiveHint
+                    } else if !location.authorized && !location.isTracking {
+                        permissionHint
+                    }
                 }
+                .padding(.horizontal, 20)
+                .padding(.bottom, 24)
+                .frame(maxWidth: 520)        // sane width on iPad / Pro Max landscape
+                .frame(maxWidth: .infinity)  // and re-center the constrained block
             }
-            .padding(.horizontal, 24)
-            .padding(.vertical, 16)
+            .scrollBounceBehavior(.basedOnSize)
             .background(backgroundWash)
             .navigationTitle("Record")
-            .navigationBarTitleDisplayMode(.large)
+            .navigationBarTitleDisplayMode(.inline)   // avoid large-title overlap on iOS 26
             .onAppear {
                 location.requestPermission()
                 if selectedVehicleID == nil {
