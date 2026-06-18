@@ -415,13 +415,16 @@ final class TripDetector: NSObject, ObservableObject {
         }
 
         // Reverse-geocode start/end addresses lazily and patch the saved trip.
-        Task { [trip, startCoord, endCoord] in
+        // Capture `store` explicitly so the Task doesn't implicitly capture
+        // `self` — silences the Swift 6 'captured var self' warning.
+        let storeRef = store
+        Task { [trip, startCoord, endCoord, storeRef] in
             let start = await Self.reverseGeocode(startCoord)
             let end = await Self.reverseGeocode(endCoord)
             var t = trip
             t.startAddress = start
             t.endAddress = end
-            store.updateTrip(t)
+            await storeRef.updateTrip(t)
         }
 
         manager.stopUpdatingLocation()

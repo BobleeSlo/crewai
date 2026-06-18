@@ -1,6 +1,10 @@
 import Foundation
 import UIKit
-import Vision
+// Vision framework types (VNImageRequestHandler / VNRecognizeTextRequest)
+// aren't marked Sendable by Apple yet, but they're safe to use across the
+// continuation here. @preconcurrency silences the noise without giving up
+// concurrency checking on our own code.
+@preconcurrency import Vision
 
 /// On-device receipt OCR using Apple's Vision framework. No network calls,
 /// no third-party model — VNRecognizeTextRequest ships with iOS and is
