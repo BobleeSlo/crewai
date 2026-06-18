@@ -101,9 +101,17 @@ struct TripEditor: View {
         .keyboardDoneToolbar()
         .toolbar {
             ToolbarItem(placement: .confirmationAction) {
-                Button("Save") {
+                Button {
                     onSave(trip)
                     dismiss()
+                } label: {
+                    Text("Save")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 6)
+                        .background(Theme.brandGradient)
+                        .clipShape(Capsule())
                 }
             }
             if isNew {

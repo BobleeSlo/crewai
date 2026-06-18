@@ -78,7 +78,12 @@ final class TripDetector: NSObject, ObservableObject {
         super.init()
         manager.delegate = self
         manager.activityType = .automotiveNavigation
-        manager.desiredAccuracy = kCLLocationAccuracyBest
+        // Battery: NearestTenMeters is more than enough for road distance
+        // tracking; kCLLocationAccuracyBest pulls power continuously and
+        // adds no value at highway speeds. distanceFilter cuts updates
+        // in stop-and-go traffic by 5–10x.
+        manager.desiredAccuracy = kCLLocationAccuracyNearestTenMeters
+        manager.distanceFilter = 10
         permission = manager.authorizationStatus
 
         restoreActiveTripIfAny()
@@ -364,12 +369,19 @@ final class TripDetector: NSObject, ObservableObject {
             endCoord: endCoord
         )
 
-        let trip = Trip(
+        // If we've seen a customer near this end location before, auto-fill
+        // the name so the user only has to confirm via the notification.
+        let learnedCustomer = CustomerSuggester.suggest(near: endCoord, in: store.trips)
+        let customer = (classified.customerName?.isEmpty == false ? classified.customerName : nil)
+            ?? learnedCustomer
+            ?? ""
+
+        var trip = Trip(
             id: state.id,
             vehicleID: state.vehicleID,
             type: classified.type,
             purpose: "",
-            customerName: classified.customerName ?? "",
+            customerName: customer,
             startedAt: state.startedAt,
             endedAt: Date(),
             startAddress: "",
@@ -378,6 +390,8 @@ final class TripDetector: NSObject, ObservableObject {
             notes: "Auto-detected",
             isLocked: false
         )
+        trip.endLat = state.lastLat
+        trip.endLng = state.lastLng
         store.addTrip(trip)
         log.log(String(format: "Trip ended (%@): %.1f km → %@",
                        reason, state.distanceKm, classified.type.label), level: .info)

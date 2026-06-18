@@ -191,6 +191,10 @@ struct VehicleEditView: View {
     @State private var showingDeleteConfirm = false
     @State private var deletionMessage: String?
 
+    private var saveButtonEnabled: Bool {
+        !vehicle.name.trimmingCharacters(in: .whitespaces).isEmpty
+    }
+
     var body: some View {
         NavigationStack {
             Form {
@@ -277,15 +281,24 @@ struct VehicleEditView: View {
             .keyboardDoneToolbar()
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") {
+                    Button {
                         if isNew {
                             store.addVehicle(vehicle)
                         } else {
                             store.updateVehicle(vehicle)
                         }
                         dismiss()
+                    } label: {
+                        Text("Save")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 6)
+                            .background(saveButtonEnabled ? AnyShapeStyle(Theme.brandGradient)
+                                                          : AnyShapeStyle(Color.gray.opacity(0.3)))
+                            .clipShape(Capsule())
                     }
-                    .disabled(vehicle.name.trimmingCharacters(in: .whitespaces).isEmpty)
+                    .disabled(!saveButtonEnabled)
                 }
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }

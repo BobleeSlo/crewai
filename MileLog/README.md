@@ -129,6 +129,34 @@ for free with any Apple ID.
 - `TripEditor` pulls points lazily and renders them on an embedded MapKit
   polyline (`TripMapView`) with start/end annotations.
 
+**Phase 8 — Battery, smart customer fill, camera OCR, polished Save** ✅
+- **Save buttons** in `TripEditor` and `VehicleEditView` are now branded
+  gradient capsules with a clearly disabled state — replaces the iOS 26
+  underlined-link rendering that looked broken.
+- **Battery**: both `TripDetector` and `LocationManager` switched from
+  `kCLLocationAccuracyBest`/`BestForNavigation` to `NearestTenMeters`
+  with a 10–20 m `distanceFilter`. Cuts background GPS power by roughly
+  half with no real loss of accuracy for road-distance accumulation.
+- **Customer auto-fill from learned locations**: `Trip.endLat/endLng`
+  added (column already in Supabase schema), persisted on every trip end
+  (both auto and manual). New `CustomerSuggester` matches the new trip's
+  end coordinates against past trips' end coordinates within 200 m and
+  picks the most-frequently-visited matching customer name. Auto and
+  manual trip paths both consult it.
+- **Receipts**:
+  - New `CameraImagePicker` lets the user **take a photo** in addition
+    to picking from the library; a confirmation dialog asks which.
+  - New `ReceiptScanner` runs on-device OCR via Vision
+    (`VNRecognizeTextRequest`) in Slovenian + English, finds amount
+    patterns (12,34 / 1.234,56 / etc.), and biases toward lines
+    containing "skupaj" / "za plačilo" / "total" / "amount" keywords
+    so it locks onto the grand total. Detected amount auto-fills the
+    Amount field and shows an "Auto-detected: € X.XX" hint.
+  - **No Info.plist additions required if NSCameraUsageDescription is
+    already set** (it was added in Phase 5). If not, add
+    `Privacy - Camera Usage Description` → *"MileLog uses the camera
+    to scan receipt photos."*
+
 **Phase 7 — UX refresh (indigo brand, hero Record, card trips)** ✅
 - New `Theme.swift` centralises the brand identity: indigo→blue gradient,
   per-trip-type palette (business=blue, commute=orange, private=gray) and a

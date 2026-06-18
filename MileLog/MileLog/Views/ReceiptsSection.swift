@@ -1,8 +1,10 @@
 import SwiftUI
 import PhotosUI
 
-/// "Receipts" Form section: list of receipts for a trip + a PhotosPicker to add
-/// a new one. Uploads the photo to Supabase Storage and inserts a row.
+/// "Receipts" Form section: list of receipts for a trip + a single
+/// "Add receipt photo" affordance that lets the user choose between
+/// **camera** and **library**, then runs on-device OCR (Vision) to
+/// auto-fill the amount field from the scanned receipt.
 struct ReceiptsSection: View {
     let tripID: UUID
     @Binding var receipts: [Receipt]
@@ -10,10 +12,16 @@ struct ReceiptsSection: View {
     @EnvironmentObject var supabase: SupabaseService
 
     @State private var photoItem: PhotosPickerItem?
+    @State private var capturedImage: UIImage?
     @State private var newType: ReceiptType = .fuel
     @State private var newAmount: String = ""
     @State private var isUploading = false
+    @State private var isScanning = false
     @State private var errorText: String?
+    @State private var scanHint: String?
+    @State private var showingSourcePicker = false
+    @State private var showingCamera = false
+    @State private var showingPhotosPicker = false
 
     var body: some View {
         Section("Receipts") {
@@ -35,37 +43,99 @@ struct ReceiptsSection: View {
                 Text("€").foregroundColor(.secondary)
             }
 
-            PhotosPicker(selection: $photoItem, matching: .images, photoLibrary: .shared()) {
+            Button {
+                showingSourcePicker = true
+            } label: {
                 if isUploading {
                     HStack { ProgressView(); Text("Uploading…") }
+                } else if isScanning {
+                    HStack { ProgressView(); Text("Scanning receipt…") }
                 } else {
                     Label("Add receipt photo", systemImage: "camera.fill")
                 }
             }
-            .disabled(isUploading)
-            .onChange(of: photoItem) { _, newItem in
-                guard let newItem else { return }
-                Task { await uploadSelectedPhoto(newItem) }
+            .disabled(isUploading || isScanning)
+
+            if let scanHint {
+                Label(scanHint, systemImage: "sparkles")
+                    .font(.footnote)
+                    .foregroundColor(.blue)
             }
 
             if let errorText {
                 Text(errorText).font(.footnote).foregroundColor(.red)
             }
         }
+        .confirmationDialog("Add receipt photo", isPresented: $showingSourcePicker) {
+            Button {
+                showingCamera = true
+            } label: {
+                Label("Take photo", systemImage: "camera")
+            }
+            Button {
+                showingPhotosPicker = true
+            } label: {
+                Label("Choose from library", systemImage: "photo.on.rectangle")
+            }
+            Button("Cancel", role: .cancel) {}
+        }
+        .sheet(isPresented: $showingCamera) {
+            CameraImagePicker(image: $capturedImage)
+                .ignoresSafeArea()
+        }
+        .photosPicker(isPresented: $showingPhotosPicker,
+                      selection: $photoItem,
+                      matching: .images,
+                      photoLibrary: .shared())
+        .onChange(of: photoItem) { _, newItem in
+            guard let newItem else { return }
+            Task { await handleLibraryPick(newItem) }
+        }
+        .onChange(of: capturedImage) { _, newImage in
+            guard let newImage else { return }
+            Task { await handleImage(newImage) }
+        }
     }
 
-    private func uploadSelectedPhoto(_ item: PhotosPickerItem) async {
-        errorText = nil
-        isUploading = true
-        defer { isUploading = false; photoItem = nil }
+    // MARK: - Photo handling
 
+    private func handleLibraryPick(_ item: PhotosPickerItem) async {
+        defer { photoItem = nil }
         guard let data = try? await item.loadTransferable(type: Data.self),
-              let image = UIImage(data: data),
-              let jpeg = image.jpegData(compressionQuality: 0.75)
-        else {
+              let image = UIImage(data: data) else {
             errorText = "Could not load image."
             return
         }
+        await handleImage(image)
+    }
+
+    private func handleImage(_ image: UIImage) async {
+        errorText = nil
+        scanHint = nil
+        defer { capturedImage = nil }
+
+        // 1. Run OCR first — the user can review the auto-filled amount
+        //    in the editor before tapping the next action.
+        isScanning = true
+        if let detected = await ReceiptScanner.extractAmount(from: image) {
+            newAmount = String(format: "%.2f", detected)
+            scanHint = String(format: "Auto-detected: € %.2f", detected)
+        } else {
+            scanHint = "Couldn't read an amount — enter it manually."
+        }
+        isScanning = false
+
+        // 2. Upload + persist.
+        await upload(image: image)
+    }
+
+    private func upload(image: UIImage) async {
+        guard let jpeg = image.jpegData(compressionQuality: 0.75) else {
+            errorText = "Could not encode image."
+            return
+        }
+        isUploading = true
+        defer { isUploading = false }
 
         let receipt = Receipt(
             type: newType,
@@ -84,6 +154,7 @@ struct ReceiptsSection: View {
             try await supabase.pushReceipt(saved, tripID: tripID)
             receipts.append(saved)
             newAmount = ""
+            // Keep scanHint visible briefly so the user sees the OCR result.
         } catch {
             errorText = "Upload failed: \(error.localizedDescription)"
         }

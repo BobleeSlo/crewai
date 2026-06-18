@@ -101,6 +101,10 @@ struct Trip: Identifiable, Codable, Hashable {
     var endedAt: Date
     var startAddress: String
     var endAddress: String
+    /// End coordinates — used by `CustomerSuggester` to remember the location
+    /// of customers and auto-fill the name when a future trip ends nearby.
+    var endLat: Double? = nil
+    var endLng: Double? = nil
     var distanceKm: Double
     var notes: String
     var isLocked: Bool

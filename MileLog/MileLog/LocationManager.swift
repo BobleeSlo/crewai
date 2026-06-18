@@ -27,7 +27,11 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
     override init() {
         super.init()
         manager.delegate = self
-        manager.desiredAccuracy = kCLLocationAccuracyBestForNavigation
+        // Battery: switched from BestForNavigation (continuous high-power
+        // GPS) to NearestTenMeters. 10m accuracy is more than enough for
+        // road distance accumulation and uses substantially less power
+        // — important because the manual recorder may be left running.
+        manager.desiredAccuracy = kCLLocationAccuracyNearestTenMeters
         manager.distanceFilter = 20          // metres between updates
         manager.activityType = .automotiveNavigation
     }

@@ -252,12 +252,16 @@ struct RecordTripView: View {
         guard let vehicleID = selectedVehicleID else { return }
         let startAddress = await location.reverseGeocode(location.startLocation)
         let endAddress = await location.reverseGeocode(location.endLocation)
+        let endCoord = location.endLocation?.coordinate
 
-        tripToClassify = Trip(
+        // Auto-fill customer from past trips near this destination.
+        let suggestedCustomer = CustomerSuggester.suggest(near: endCoord, in: store.trips) ?? ""
+
+        var trip = Trip(
             vehicleID: vehicleID,
             type: .business,
             purpose: "",
-            customerName: "",
+            customerName: suggestedCustomer,
             startedAt: location.startedAt ?? Date(),
             endedAt: Date(),
             startAddress: startAddress,
@@ -266,5 +270,8 @@ struct RecordTripView: View {
             notes: "",
             isLocked: false
         )
+        trip.endLat = endCoord?.latitude
+        trip.endLng = endCoord?.longitude
+        tripToClassify = trip
     }
 }

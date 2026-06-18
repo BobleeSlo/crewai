@@ -51,6 +51,8 @@ struct TripDTO: Codable {
     var ended_at: Date?
     var start_address: String?
     var end_address: String?
+    var end_lat: Double?
+    var end_lng: Double?
     var distance_km: Double
     var notes: String?
     var is_locked: Bool
@@ -67,6 +69,8 @@ struct TripDTO: Codable {
         ended_at = t.endedAt
         start_address = t.startAddress
         end_address = t.endAddress
+        end_lat = t.endLat
+        end_lng = t.endLng
         distance_km = t.distanceKm
         notes = t.notes
         is_locked = t.isLocked
@@ -88,6 +92,8 @@ struct TripDTO: Codable {
             notes: notes ?? "",
             isLocked: is_locked
         )
+        trip.endLat = end_lat
+        trip.endLng = end_lng
         trip.lockedAt = locked_at
         return trip
     }
