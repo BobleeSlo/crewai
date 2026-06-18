@@ -13,8 +13,11 @@ struct TripsListView: View {
                 }
             }
             .navigationTitle("Trips")
+            .navigationBarTitleDisplayMode(.large)
         }
     }
+
+    // MARK: - List
 
     private var tripList: some View {
         List {
@@ -24,78 +27,161 @@ struct TripsListView: View {
                         NavigationLink {
                             TripDetailView(trip: trip)
                         } label: {
-                            TripRow(trip: trip)
+                            TripCard(trip: trip)
                         }
+                        .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
+                        .listRowSeparator(.hidden)
+                        .listRowBackground(Color.clear)
                     }
                     .onDelete { offsets in
                         store.deleteTrips(section.trips, at: offsets)
                     }
                 } header: {
-                    HStack {
-                        Text(section.title)
-                        Spacer()
-                        Text(section.summary).foregroundColor(.secondary)
-                    }
+                    MonthSectionHeader(section: section)
+                        .padding(.horizontal, -8) // align to list edge
                 }
             }
         }
+        .listStyle(.plain)
+        .scrollContentBackground(.hidden)
+        .background(backgroundWash)
     }
 
+    private var backgroundWash: some View {
+        LinearGradient(
+            colors: [
+                Theme.brandStart.opacity(0.05),
+                Color(.systemBackground)
+            ],
+            startPoint: .top,
+            endPoint: .center
+        )
+        .ignoresSafeArea()
+    }
+
+    // MARK: - Empty state
+
     private var emptyState: some View {
-        VStack(spacing: 12) {
-            Image(systemName: "car")
-                .font(.system(size: 48))
-                .foregroundColor(.secondary)
-            Text("No trips yet")
-                .font(.headline)
-            Text("Record your first trip from the Record tab.")
-                .font(.subheadline)
-                .foregroundColor(.secondary)
-                .multilineTextAlignment(.center)
+        VStack(spacing: 16) {
+            ZStack {
+                Circle()
+                    .fill(Theme.brandGradient)
+                    .frame(width: 120, height: 120)
+                    .opacity(0.12)
+                Image(systemName: "car.fill")
+                    .font(.system(size: 56, weight: .light))
+                    .foregroundStyle(Theme.brandGradient)
+            }
+            VStack(spacing: 6) {
+                Text("No trips yet")
+                    .font(.title3.bold())
+                Text("Record your first trip from the Record tab — or pair your car's Bluetooth in Vehicles so auto-detect handles it for you.")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 32)
+            }
         }
-        .padding()
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(backgroundWash)
     }
 }
 
-struct TripRow: View {
-    @EnvironmentObject var store: Store
+// MARK: - Trip card row -----------------------------------------------------
+
+struct TripCard: View {
     let trip: Trip
+    @EnvironmentObject var store: Store
 
     var body: some View {
-        HStack {
-            VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: 4) {
-                    Text(trip.customerName.isEmpty ? trip.type.label : trip.customerName)
+        HStack(spacing: 12) {
+            // Colored left edge — instant visual signal for trip type
+            RoundedRectangle(cornerRadius: 3, style: .continuous)
+                .fill(Theme.tripColor(trip.type))
+                .frame(width: 4)
+
+            VStack(alignment: .leading, spacing: 6) {
+                // Title row: customer (or fallback to type) + lock badge
+                HStack(spacing: 6) {
+                    Text(titleText)
                         .font(.headline)
+                        .lineLimit(1)
                     if trip.isLocked {
                         Image(systemName: "lock.fill")
                             .font(.caption2)
                             .foregroundColor(.orange)
                     }
+                    Spacer(minLength: 4)
+                    TripTypeChip(type: trip.type, compact: true)
                 }
-                Text("\(trip.startedAt.formatted(date: .abbreviated, time: .omitted)) · \(store.vehicleName(trip.vehicleID))")
+
+                // Route row: From → To
+                if !trip.startAddress.isEmpty || !trip.endAddress.isEmpty {
+                    HStack(spacing: 4) {
+                        Text(trip.startAddress.isEmpty ? "—" : trip.startAddress)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                        Image(systemName: "arrow.right")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundColor(.secondary)
+                        Text(trip.endAddress.isEmpty ? "—" : trip.endAddress)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                    }
                     .font(.caption)
                     .foregroundColor(.secondary)
-            }
-            Spacer()
-            VStack(alignment: .trailing, spacing: 4) {
-                Text(String(format: "%.1f km", trip.distanceKm))
-                    .font(.subheadline.bold())
-                Text(trip.type.label)
-                    .font(.caption2)
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
-                    .background(badgeColor.opacity(0.2))
-                    .clipShape(Capsule())
+                }
+
+                // Meta row: date · vehicle · km
+                HStack(spacing: 6) {
+                    Text(trip.startedAt, format: .dateTime.day().month().year())
+                    Text("·")
+                    Text(store.vehicleName(trip.vehicleID))
+                        .lineLimit(1)
+                    Spacer()
+                    Text(String(format: "%.1f km", trip.distanceKm))
+                        .font(.subheadline.weight(.semibold).monospacedDigit())
+                        .foregroundColor(.primary)
+                }
+                .font(.caption2)
+                .foregroundColor(.secondary)
             }
         }
+        .padding(.vertical, 10)
+        .padding(.horizontal, 12)
+        .background(Theme.cardBackground)
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .shadow(color: Theme.cardShadow, radius: 4, x: 0, y: 1)
     }
 
-    private var badgeColor: Color {
-        switch trip.type {
-        case .business:    return .blue
-        case .commute:     return .orange
-        case .privateTrip: return .gray
+    private var titleText: String {
+        if !trip.customerName.isEmpty { return trip.customerName }
+        if !trip.purpose.isEmpty      { return trip.purpose }
+        return trip.type.label
+    }
+}
+
+// MARK: - Month section header ---------------------------------------------
+
+struct MonthSectionHeader: View {
+    let section: MonthSection
+
+    var body: some View {
+        HStack {
+            Text(section.title)
+                .font(.headline)
+                .foregroundColor(.primary)
+            Spacer()
+            Text(section.summary)
+                .font(.caption.weight(.semibold))
+                .foregroundColor(.white)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 4)
+                .background(
+                    Capsule().fill(Theme.brandGradient)
+                )
         }
+        .textCase(nil)
+        .padding(.vertical, 4)
     }
 }

@@ -129,6 +129,27 @@ for free with any Apple ID.
 - `TripEditor` pulls points lazily and renders them on an embedded MapKit
   polyline (`TripMapView`) with start/end annotations.
 
+**Phase 7 — UX refresh (indigo brand, hero Record, card trips)** ✅
+- New `Theme.swift` centralises the brand identity: indigo→blue gradient,
+  per-trip-type palette (business=blue, commute=orange, private=gray) and a
+  card-surface color + shadow.
+- Reusable components added to `UIComponents.swift`:
+  - `PulsingDot` — animated "live" indicator
+  - `TripTypeChip` — colored capsule badge for the three trip types
+  - `.cardStyle()` view modifier for elevated rounded surfaces
+- `RecordTripView` redesigned as a hero screen: large gradient circle in the
+  center showing the live km readout with `.contentTransition(.numericText())`
+  for smooth updates, pulsing dot + descriptor row when a trip is live,
+  prominent gradient Start / red gradient Stop button with shadow, soft
+  indigo background wash, and a custom vehicle-selector Menu chip at the top.
+- `TripsListView` redesigned with card-style rows: colored left edge per trip
+  type, headline customer/purpose, route arrow (`From → To`), date · vehicle ·
+  km on the bottom, gradient-pill monthly section header showing the business
+  total at a glance. Empty state has a large gradient car icon and copy.
+- Tab bar uses `.tint(Theme.accent)` so the active tab and selected controls
+  pick up the brand color. Tab icons switched to filled variants for a
+  modern look.
+
 **Phase 6b — Vehicle lifecycle (archive / restore / delete)** ✅
 - `Vehicle.isActive` flag mirrors the existing `vehicles.is_active` column.
   Active vehicles appear in pickers (Record tab, Logbook export, Trip

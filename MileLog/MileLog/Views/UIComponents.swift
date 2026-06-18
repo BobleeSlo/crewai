@@ -115,3 +115,60 @@ struct SectionHeaderLabel: View {
             .textCase(nil)
     }
 }
+
+// MARK: - PulsingDot (Recording / live status indicator)
+
+struct PulsingDot: View {
+    var color: Color = .white
+    var size: CGFloat = 8
+
+    @State private var animate = false
+
+    var body: some View {
+        Circle()
+            .fill(color)
+            .frame(width: size, height: size)
+            .scaleEffect(animate ? 1.6 : 1.0)
+            .opacity(animate ? 0.3 : 1.0)
+            .animation(.easeInOut(duration: 1).repeatForever(autoreverses: true),
+                       value: animate)
+            .onAppear { animate = true }
+    }
+}
+
+// MARK: - TripTypeChip
+
+struct TripTypeChip: View {
+    let type: TripType
+    var compact: Bool = false
+
+    var body: some View {
+        Text(type.label.uppercased())
+            .font(compact ? .caption2.weight(.bold) : .caption.weight(.bold))
+            .tracking(0.5)
+            .padding(.horizontal, compact ? 6 : 8)
+            .padding(.vertical, compact ? 2 : 3)
+            .background(Theme.tripColor(type).opacity(0.18))
+            .foregroundColor(Theme.tripColor(type))
+            .clipShape(Capsule())
+    }
+}
+
+// MARK: - Card style modifier
+
+private struct CardStyleModifier: ViewModifier {
+    func body(content: Content) -> some View {
+        content
+            .padding(14)
+            .background(Theme.cardBackground)
+            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .shadow(color: Theme.cardShadow, radius: 4, x: 0, y: 1)
+    }
+}
+
+extension View {
+    /// Applies the MileLog card surface: padding + rounded corners + subtle shadow.
+    func cardStyle() -> some View {
+        modifier(CardStyleModifier())
+    }
+}
