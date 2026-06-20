@@ -319,9 +319,15 @@ final class TripDetector: NSObject, ObservableObject {
 
     private func startAuditTimer() {
         auditTimer?.invalidate()
+        // The Timer fires on the current run loop; we don't capture self in
+        // the outer closure (no reference) — the inner Task captures self
+        // explicitly weak, which silences the Swift 6 'captured var self'
+        // warning that would fire on an implicit self.
         auditTimer = Timer.scheduledTimer(withTimeInterval: auditIntervalSeconds,
-                                          repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.auditActiveTrip() }
+                                          repeats: true) { _ in
+            Task { @MainActor [weak self] in
+                self?.auditActiveTrip()
+            }
         }
     }
 
@@ -505,16 +511,18 @@ final class TripDetector: NSObject, ObservableObject {
         }
 
         // Reverse-geocode start/end addresses lazily and patch the saved trip.
-        // Capture `store` explicitly so the Task doesn't implicitly capture
-        // `self` — silences the Swift 6 'captured var self' warning.
+        // Explicit @MainActor + [storeRef] capture keeps Swift 6 strict
+        // concurrency happy: storeRef is the only captured reference and
+        // the actor isolation matches store.updateTrip's requirements
+        // (so no await needed there — only the geocoder calls are async).
         let storeRef = store
-        Task { [trip, startCoord, endCoord, storeRef] in
+        Task { @MainActor [trip, startCoord, endCoord, storeRef] in
             let start = await Self.reverseGeocode(startCoord)
             let end = await Self.reverseGeocode(endCoord)
             var t = trip
             t.startAddress = start
             t.endAddress = end
-            await storeRef.updateTrip(t)
+            storeRef.updateTrip(t)
         }
 
         manager.stopUpdatingLocation()
@@ -603,7 +611,8 @@ extension TripDetector: CLLocationManagerDelegate {
     /// Power energy mode. Treat as a definitive stationary signal and end
     /// the trip rather than waiting for the next wake.
     nonisolated func locationManagerDidPauseLocationUpdates(_ manager: CLLocationManager) {
-        Task { @MainActor in
+        Task { @MainActor [weak self] in
+            guard let self else { return }
             self.log.log("iOS auto-paused location updates (stationary).", level: .info)
             if self.activeTrip != nil {
                 self.endTrip(reason: "iOS auto-paused (stationary)")
@@ -612,8 +621,8 @@ extension TripDetector: CLLocationManagerDelegate {
     }
 
     nonisolated func locationManagerDidResumeLocationUpdates(_ manager: CLLocationManager) {
-        Task { @MainActor in
-            self.log.log("iOS resumed location updates.")
+        Task { @MainActor [weak self] in
+            self?.log.log("iOS resumed location updates.")
         }
     }
 }
