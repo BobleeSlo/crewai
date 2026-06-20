@@ -47,6 +47,42 @@ final class DetectionLog: ObservableObject {
         save()
     }
 
+    // MARK: - Export
+
+    /// Plain-text dump of every entry, oldest first, with ISO timestamps —
+    /// suitable for emailing back for diagnosis when something went wrong.
+    func exportAsText() -> String {
+        let df = ISO8601DateFormatter()
+        df.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let header = """
+        MileLog Detection Log
+        Generated: \(df.string(from: Date()))
+        Entries: \(entries.count)
+        --------------------------------------------------------------------------------
+        """
+        let body = entries
+            .reversed()                                          // oldest first
+            .map { entry in
+                "\(df.string(from: entry.timestamp))  [\(entry.level.rawValue.uppercased())]  \(entry.message)"
+            }
+            .joined(separator: "\n")
+        return header + "\n" + body + "\n"
+    }
+
+    /// Writes the export to a temp file and returns the URL, ready for ShareLink.
+    func exportAsFile() -> URL? {
+        let df = DateFormatter()
+        df.dateFormat = "yyyy-MM-dd-HHmm"
+        let name = "MileLog-DetectionLog-\(df.string(from: Date())).txt"
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(name)
+        do {
+            try exportAsText().data(using: .utf8)?.write(to: url)
+            return url
+        } catch {
+            return nil
+        }
+    }
+
     private func load() {
         guard let data = try? Data(contentsOf: url),
               let decoded = try? JSONDecoder().decode([Entry].self, from: data) else { return }

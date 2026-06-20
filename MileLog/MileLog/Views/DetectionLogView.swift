@@ -43,7 +43,22 @@ struct DetectionLogView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             if !detectionLog.entries.isEmpty {
-                Button("Clear", role: .destructive) { detectionLog.clear() }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Menu {
+                        if let url = detectionLog.exportAsFile() {
+                            ShareLink(item: url) {
+                                Label("Export & share log", systemImage: "square.and.arrow.up")
+                            }
+                        }
+                        Button(role: .destructive) {
+                            detectionLog.clear()
+                        } label: {
+                            Label("Clear log", systemImage: "trash")
+                        }
+                    } label: {
+                        Image(systemName: "ellipsis.circle")
+                    }
+                }
             }
         }
     }

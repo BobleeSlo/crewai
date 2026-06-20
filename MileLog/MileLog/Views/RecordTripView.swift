@@ -217,14 +217,25 @@ struct RecordTripView: View {
     }
 
     private var autoActiveHint: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "dot.radiowaves.left.and.right")
-                .foregroundColor(Theme.accent)
-            Text("Auto-detect is tracking. It will end on Bluetooth disconnect or after \(store.settings.stationaryTimeoutMinutes) min stationary.")
-                .font(.footnote)
-                .foregroundColor(.secondary)
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 10) {
+                Image(systemName: "dot.radiowaves.left.and.right")
+                    .foregroundColor(Theme.accent)
+                Text("Auto-detect is tracking. Ends on Bluetooth disconnect or after \(store.settings.stationaryTimeoutMinutes) min stationary.")
+                    .font(.footnote)
+                    .foregroundColor(.secondary)
+                Spacer(minLength: 0)
+            }
+
+            Button(role: .destructive) {
+                detector.forceEndTrip()
+            } label: {
+                Label("Stop trip now", systemImage: "stop.fill")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.bordered)
+            .tint(.red)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(12)
         .background(Theme.accent.opacity(0.08))
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))

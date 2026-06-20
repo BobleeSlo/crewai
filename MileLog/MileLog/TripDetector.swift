@@ -52,6 +52,11 @@ final class TripDetector: NSObject, ObservableObject {
 
     private let activeTripURL: URL
     private var stationaryTimer: Timer?
+    /// Recurring sanity check during a trip — fires every 60s and ends the
+    /// trip if either of the normal triggers (stationary, BT disconnect)
+    /// failed to deliver. Logs each tick so the Detection log shows why.
+    private var auditTimer: Timer?
+    private let auditIntervalSeconds: TimeInterval = 60
 
     // Verification (candidate-trip) state — before we commit to a real Trip
     // we wait for either a sustained driving speed or CoreMotion's
@@ -115,6 +120,34 @@ final class TripDetector: NSObject, ObservableObject {
     func disable() {
         stopMonitoring()
         if activeTrip != nil { endTrip(reason: "disabled by user") }
+    }
+
+    /// User-initiated stop from the Record-tab banner. Records exactly why
+    /// the auto trigger didn't fire (stationary time + BT presence) so the
+    /// Detection log captures the post-mortem.
+    func forceEndTrip() {
+        guard let trip = activeTrip else {
+            log.log("Force-stop tapped but no active trip.", level: .warning)
+            return
+        }
+        let stationaryMin = Date().timeIntervalSince(trip.lastMovementAt) / 60
+        let currentBT = AudioRoute.currentBluetoothOutput()
+        let btStatus: String
+        if let pairedUID = trip.audioDeviceUID {
+            if currentBT?.uid == pairedUID {
+                btStatus = "BT still connected (\(currentBT?.name ?? "?"))"
+            } else if let cur = currentBT {
+                btStatus = "BT changed to \(cur.name)"
+            } else {
+                btStatus = "BT disconnected (auto-stop should have fired)"
+            }
+        } else {
+            btStatus = "no BT pairing at start"
+        }
+        log.log(String(format: "FORCE-STOP: %.1f km, %d min since last movement, %@",
+                       trip.distanceKm, Int(stationaryMin), btStatus),
+                level: .warning)
+        endTrip(reason: "force-stopped by user")
     }
 
     // MARK: - Monitoring
@@ -276,9 +309,68 @@ final class TripDetector: NSObject, ObservableObject {
         manager.allowsBackgroundLocationUpdates = true
         store.settings.energyMode.apply(to: manager)
         manager.startUpdatingLocation()
+        startAuditTimer()
 
         let bt = device.map { "BT \($0.name)" } ?? "no BT"
         log.log("Trip started: \(vehicle.name) [\(bt)] · \(store.settings.energyMode.label)", level: .info)
+    }
+
+    // MARK: - Audit (backup stationary + BT-disappeared detection)
+
+    private func startAuditTimer() {
+        auditTimer?.invalidate()
+        auditTimer = Timer.scheduledTimer(withTimeInterval: auditIntervalSeconds,
+                                          repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.auditActiveTrip() }
+        }
+    }
+
+    private func stopAuditTimer() {
+        auditTimer?.invalidate()
+        auditTimer = nil
+    }
+
+    /// Runs every `auditIntervalSeconds`. Catches the two cases where the
+    /// normal triggers can silently miss:
+    ///   1) GPS updates stop coming (iOS paused, low power) so the
+    ///      per-update stationary check never runs.
+    ///   2) AVAudioSession route-change notification didn't fire / was
+    ///      lost while the app was suspended.
+    private func auditActiveTrip() {
+        guard let trip = activeTrip else {
+            stopAuditTimer()
+            return
+        }
+
+        let stationaryMin = Date().timeIntervalSince(trip.lastMovementAt) / 60
+        let timeout = Double(store.settings.stationaryTimeoutMinutes)
+
+        // BT audit: if the paired device is no longer in the current audio
+        // route, treat it as a disconnect that the system notification missed.
+        if let pairedUID = trip.audioDeviceUID {
+            let currentUID = AudioRoute.currentBluetoothOutput()?.uid
+            if currentUID != pairedUID {
+                log.log("AUDIT: paired BT device gone from audio route — ending trip.",
+                        level: .info)
+                endTrip(reason: "BT disconnected (audit)")
+                return
+            }
+        }
+
+        // Stationary audit.
+        if stationaryMin >= timeout {
+            log.log(String(format: "AUDIT: %.0f min stationary >= %.0f min threshold — ending trip.",
+                           stationaryMin, timeout), level: .info)
+            endTrip(reason: "stationary \(Int(stationaryMin)) min (audit)")
+            return
+        }
+
+        // Heartbeat — proves the audit is alive and reveals why we're not stopping.
+        log.log(String(format: "AUDIT heartbeat: %.1f km · %.0f min since last movement (threshold %.0f) · BT %@",
+                       trip.distanceKm,
+                       stationaryMin,
+                       timeout,
+                       trip.audioDeviceUID == nil ? "n/a" : "ok"))
     }
 
     /// When no BT match is available, prefer the vehicle from the user's most
@@ -427,6 +519,7 @@ final class TripDetector: NSObject, ObservableObject {
 
         manager.stopUpdatingLocation()
         motion.stop()
+        stopAuditTimer()
         activeTrip = nil
         clearPersistedActiveTrip()
     }
@@ -503,6 +596,24 @@ extension TripDetector: CLLocationManagerDelegate {
     nonisolated func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
         Task { @MainActor in
             self.log.log("Location error: \(error.localizedDescription)", level: .error)
+        }
+    }
+
+    /// iOS itself decided we're stationary and paused GPS — happens in Low
+    /// Power energy mode. Treat as a definitive stationary signal and end
+    /// the trip rather than waiting for the next wake.
+    nonisolated func locationManagerDidPauseLocationUpdates(_ manager: CLLocationManager) {
+        Task { @MainActor in
+            self.log.log("iOS auto-paused location updates (stationary).", level: .info)
+            if self.activeTrip != nil {
+                self.endTrip(reason: "iOS auto-paused (stationary)")
+            }
+        }
+    }
+
+    nonisolated func locationManagerDidResumeLocationUpdates(_ manager: CLLocationManager) {
+        Task { @MainActor in
+            self.log.log("iOS resumed location updates.")
         }
     }
 }
