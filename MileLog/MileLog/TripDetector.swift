@@ -548,7 +548,8 @@ final class TripDetector: NSObject, ObservableObject {
         guard let info = note.userInfo,
               let raw = info[AVAudioSessionRouteChangeReasonKey] as? UInt,
               let reason = AVAudioSession.RouteChangeReason(rawValue: raw) else { return }
-        Task { @MainActor in
+        Task { @MainActor [weak self] in
+            guard let self else { return }
             self.log.log("Audio route change: \(reason)")
             if reason == .oldDeviceUnavailable, let active = self.activeTrip, active.audioDeviceUID != nil {
                 self.endTrip(reason: "Bluetooth disconnected")
@@ -579,7 +580,8 @@ extension TripDetector: CLLocationManagerDelegate {
 
     nonisolated func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
         let status = manager.authorizationStatus
-        Task { @MainActor in
+        Task { @MainActor [weak self] in
+            guard let self else { return }
             self.permission = status
             self.log.log("Location authorization changed: \(status.label)")
             if status == .authorizedAlways && self.store.settings.autoDetectEnabled && !self.isEnabled {
@@ -590,7 +592,8 @@ extension TripDetector: CLLocationManagerDelegate {
 
     nonisolated func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
         guard let loc = locations.last else { return }
-        Task { @MainActor in
+        Task { @MainActor [weak self] in
+            guard let self else { return }
             if self.activeTrip != nil {
                 self.updateActiveTrip(with: loc)
             } else if self.candidate != nil {
@@ -602,8 +605,8 @@ extension TripDetector: CLLocationManagerDelegate {
     }
 
     nonisolated func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
-        Task { @MainActor in
-            self.log.log("Location error: \(error.localizedDescription)", level: .error)
+        Task { @MainActor [weak self] in
+            self?.log.log("Location error: \(error.localizedDescription)", level: .error)
         }
     }
 
