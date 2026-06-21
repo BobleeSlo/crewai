@@ -240,6 +240,16 @@ final class TripDetector: NSObject, ObservableObject {
     /// Called on every active-GPS update while in candidate mode.
     private func updateVerification(with location: CLLocation) {
         guard var c = candidate else { return }
+
+        // Wall-clock timeout — Timer.scheduledTimer doesn't fire while iOS
+        // suspends the app, so the 90s deadline can stretch to many minutes.
+        // Whenever an update lands we also check elapsed time and finish if
+        // the window has passed.
+        if Date().timeIntervalSince(c.startedAt) >= verificationSeconds {
+            finishVerification(early: false)
+            return
+        }
+
         let kmh = max(0, location.speed) * 3.6
         if kmh > c.maxSpeedKmh { c.maxSpeedKmh = kmh }
         candidate = c
@@ -417,6 +427,13 @@ final class TripDetector: NSObject, ObservableObject {
                 speedKmh: Float(max(0, location.speed) * 3.6),
                 accuracyM: Float(location.horizontalAccuracy)
             ))
+            // Distance-based movement check: with distanceFilter = 10m iOS
+            // often reports speed = 0 at the moment of an update (snapshot
+            // between stop-and-go updates), so the speed check alone misses
+            // active driving and the audit then ends the trip as 'stationary'
+            // even though km kept piling up. Anything > 10m of actual GPS
+            // travel is irrefutable movement.
+            trip.lastMovementAt = Date()
         }
         if location.speed > 0.5 {   // > ~1.8 km/h => actually moving
             trip.lastMovementAt = Date()
@@ -439,13 +456,18 @@ final class TripDetector: NSObject, ObservableObject {
     private func endTrip(reason: String) {
         guard let state = activeTrip else { return }
 
-        // Discard zero-distance trips entirely — they're auto-detector noise
-        // (the wake fired but the car never moved, or it ended before any
-        // GPS update landed). Saving them just clutters the trips list.
-        if state.distanceKm <= 0 {
-            log.log("Trip discarded (\(reason)): 0 km recorded — no movement.", level: .info)
+        // Discard very-short trips entirely — they're auto-detector noise
+        // (the wake fired but the car only moved a few metres of GPS jitter,
+        // or it ended before any meaningful movement landed). Threshold at
+        // 200 m: anything shorter is below normal urban-block distance and
+        // almost always GPS noise rather than a real reimbursable trip.
+        let minTripKm = 0.2
+        if state.distanceKm < minTripKm {
+            log.log(String(format: "Trip discarded (%@): %.2f km < %.1f km threshold.",
+                           reason, state.distanceKm, minTripKm), level: .info)
             manager.stopUpdatingLocation()
             motion.stop()
+            stopAuditTimer()
             activeTrip = nil
             clearPersistedActiveTrip()
             return
