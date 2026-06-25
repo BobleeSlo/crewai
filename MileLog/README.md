@@ -129,6 +129,31 @@ for free with any Apple ID.
 - `TripEditor` pulls points lazily and renders them on an embedded MapKit
   polyline (`TripMapView`) with start/end annotations.
 
+**Phase 9 — Detector hardening from real-drive logs** ✅
+Driven by analysing on-device Detection logs from real trips. Adds:
+- **Trip merge**: new trip within 15 min + 300 m of previous end
+  resumes that trip instead of fragmenting one real drive into
+  multiple rows during brief stops.
+- **3-strike BT debounce**: AVAudioSession route wobble no longer
+  ends a trip on the first missed read; requires 3 consecutive
+  audits with the paired device missing.
+- **Verification needs movement**: CoreMotion's automotive signal
+  alone isn't enough — also require ≥100 m of GPS distance during
+  the verification window. Eliminates false starts where a parked
+  phone confuses CoreMotion.
+- **Richer verification telemetry**: PASSED/FAILED lines log
+  `distance` and `non-car` flag so rejection reasons are obvious.
+- **Candidate persistence + stale cleanup**: candidates older than
+  2× the verification window are dropped on app launch.
+- **Restore resumes GPS + audit**: `restoreActiveTripIfAny` now
+  re-starts the location manager and audit timer so trip-end
+  detection survives iOS app termination mid-drive.
+- **Audit deduplication**: 5-second window suppresses back-to-back
+  audit calls from race conditions with route-change handlers.
+- **GPS health in heartbeat**: each AUDIT heartbeat now appends
+  `GPS Xs ago · acc Ym` for at-a-glance signal diagnostics.
+- **BT-miss counter resets** on a successful read or trip end.
+
 **Phase 8a — Energy mode toggle** ✅
 - New `EnergyMode` enum in `Models.swift` (`lowPower` / `balanced` /
   `highAccuracy`) with localized labels and summaries.

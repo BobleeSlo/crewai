@@ -60,17 +60,48 @@ final class TripDetector: NSObject, ObservableObject {
 
     // Verification (candidate-trip) state — before we commit to a real Trip
     // we wait for either a sustained driving speed or CoreMotion's
-    // "automotive" signal, otherwise the wake was just a walk / run.
+    // "automotive" signal combined with GPS movement, otherwise the wake
+    // was just a walk / run.
     private struct Candidate {
         let startedAt: Date
         let startLocation: CLLocation
+        var lastLocation: CLLocation
         var maxSpeedKmh: Double
+        var distanceMetres: Double
         let confirmedByBluetooth: Bool
     }
     private var candidate: Candidate?
     private var verificationDeadline: Timer?
     private let speedConfirmKmh: Double = 25
     private let verificationSeconds: TimeInterval = 90
+    /// CoreMotion's "automotive" signal alone is unreliable when the user is
+    /// in a moving vehicle as a passenger or even walking next to a car.
+    /// Require this much GPS movement during the window before trusting it.
+    private let automotiveMovementMetres: Double = 100
+
+    // 3-strike BT-disconnect debounce: AVAudioSession occasionally flips
+    // the route during the same drive (interrupting call, brief auto-
+    // disconnect). Wait for N consecutive audits with the paired device
+    // missing before ending the trip.
+    private var consecutiveBTMisses = 0
+    private let btMissesToConfirm = 3
+
+    // Duplicate-audit suppression — the audit can occasionally fire twice
+    // in rapid succession when an audio route change handler triggers a
+    // re-check alongside the timer. Anything within this window is dropped.
+    private var lastAuditAt: Date = .distantPast
+    private let auditDedupeWindow: TimeInterval = 5
+
+    // GPS health diagnostics so a future "GPS interrupted" complaint
+    // becomes obvious in the Detection log.
+    private var lastLocationAt: Date = .distantPast
+    private var lastAccuracy: Double = -1
+
+    // Trip-merge tolerances: a new trip that starts within this much time
+    // AND distance of the previous trip's end is treated as a continuation
+    // of that trip instead of a separate row.
+    private let mergeWindowMinutes: Double = 15
+    private let mergeRadiusMetres: Double = 300
 
     init(store: Store, log: DetectionLog, notifications: NotificationManager) {
         self.store = store
@@ -217,9 +248,12 @@ final class TripDetector: NSObject, ObservableObject {
         candidate = Candidate(
             startedAt: Date(),
             startLocation: location,
+            lastLocation: location,
             maxSpeedKmh: 0,
+            distanceMetres: 0,
             confirmedByBluetooth: false
         )
+        persistCandidate()
         manager.allowsBackgroundLocationUpdates = true
         store.settings.energyMode.apply(to: manager)
         manager.startUpdatingLocation()
@@ -234,7 +268,7 @@ final class TripDetector: NSObject, ObservableObject {
                                                     repeats: false) { [weak self] _ in
             Task { @MainActor in self?.finishVerification() }
         }
-        log.log("Verification started — need speed > \(Int(speedConfirmKmh)) km/h or automotive activity.")
+        log.log("Verification started — need speed > \(Int(speedConfirmKmh)) km/h, or automotive activity with GPS movement.")
     }
 
     /// Called on every active-GPS update while in candidate mode.
@@ -252,10 +286,19 @@ final class TripDetector: NSObject, ObservableObject {
 
         let kmh = max(0, location.speed) * 3.6
         if kmh > c.maxSpeedKmh { c.maxSpeedKmh = kmh }
+
+        // Accumulate GPS distance from the last update so the automotive
+        // confirmation can require real movement (a phone in a stationary
+        // car next to a passing vehicle can confuse CoreMotion alone).
+        let metres = location.distance(from: c.lastLocation)
+        if metres > 5 {
+            c.distanceMetres += metres
+            c.lastLocation = location
+        }
         candidate = c
 
-        // Early confirmation: don't wait the full 90s if we already see driving.
-        if kmh > speedConfirmKmh || motion.hasAutomotiveSignal {
+        let automotiveConfirmed = motion.hasAutomotiveSignal && c.distanceMetres > automotiveMovementMetres
+        if kmh > speedConfirmKmh || automotiveConfirmed {
             finishVerification(early: true)
         }
     }
@@ -267,13 +310,24 @@ final class TripDetector: NSObject, ObservableObject {
 
         let speedOK = c.maxSpeedKmh > speedConfirmKmh
         let autoOK  = motion.hasAutomotiveSignal
-        let walkingDetected = motion.hasNonAutomotiveSignal && !autoOK
+        let movementOK = c.distanceMetres > automotiveMovementMetres
+        let nonCar = motion.hasNonAutomotiveSignal
+        let walkingDetected = nonCar && !autoOK
 
-        if (speedOK || autoOK) && !walkingDetected {
-            log.log(String(format: "Verification PASSED (%@): max %.1f km/h, automotive=%@",
+        // PASS when either the speed clearly indicates driving, OR
+        // CoreMotion calls it automotive AND we covered enough GPS distance
+        // to disqualify "passenger / sat near a moving car" false positives.
+        let pass = !walkingDetected && (speedOK || (autoOK && movementOK))
+
+        if pass {
+            log.log(String(format: "Verification PASSED (%@): max %.1f km/h, distance %.0f m, automotive=%@, non-car=%@",
                            early ? "early" : "timeout",
-                           c.maxSpeedKmh, autoOK ? "yes" : "no"), level: .info)
+                           c.maxSpeedKmh,
+                           c.distanceMetres,
+                           autoOK ? "yes" : "no",
+                           nonCar ? "yes" : "no"), level: .info)
             candidate = nil
+            clearPersistedCandidate()
             motion.stop()
             // Re-read BT now (it may have connected while we were verifying).
             let device = AudioRoute.currentBluetoothOutput()
@@ -282,11 +336,13 @@ final class TripDetector: NSObject, ObservableObject {
             commitTripStart(at: c.startLocation, startedAt: c.startedAt,
                             vehicle: vehicle, device: device)
         } else {
-            log.log(String(format: "Verification FAILED: max %.1f km/h, automotive=%@, walking=%@ — discarding.",
+            log.log(String(format: "Verification FAILED: max %.1f km/h, distance %.0f m, automotive=%@, non-car=%@ — discarding.",
                            c.maxSpeedKmh,
+                           c.distanceMetres,
                            autoOK ? "yes" : "no",
-                           walkingDetected ? "yes" : "no"), level: .info)
+                           nonCar ? "yes" : "no"), level: .info)
             candidate = nil
+            clearPersistedCandidate()
             motion.stop()
             manager.stopUpdatingLocation()
         }
@@ -294,6 +350,14 @@ final class TripDetector: NSObject, ObservableObject {
 
     private func commitTripStart(at location: CLLocation, startedAt: Date,
                                  vehicle: Vehicle, device: BluetoothAudioDevice?) {
+        // Trip merge: if this matches a continuation of the previous trip
+        // (same vehicle, within mergeWindow minutes and mergeRadius metres
+        // of the previous end coords), resume that trip instead of splitting
+        // a real drive into multiple rows because of a brief stop.
+        if tryMergeWithRecentTrip(at: location, vehicle: vehicle, device: device) {
+            return
+        }
+
         let state = ActiveTripState(
             id: UUID(),
             vehicleID: vehicle.id,
@@ -315,6 +379,7 @@ final class TripDetector: NSObject, ObservableObject {
         )
         activeTrip = state
         persistActiveTrip()
+        consecutiveBTMisses = 0
 
         manager.allowsBackgroundLocationUpdates = true
         store.settings.energyMode.apply(to: manager)
@@ -358,18 +423,36 @@ final class TripDetector: NSObject, ObservableObject {
             return
         }
 
+        // Duplicate-call suppression: occasionally an audio route change
+        // handler triggers a re-check just after the 60s timer fires, and we
+        // log noisy back-to-back '(1/3)' '(2/3)' lines. Anything inside the
+        // dedupe window is ignored.
+        if Date().timeIntervalSince(lastAuditAt) < auditDedupeWindow { return }
+        lastAuditAt = Date()
+
         let stationaryMin = Date().timeIntervalSince(trip.lastMovementAt) / 60
         let timeout = Double(store.settings.stationaryTimeoutMinutes)
 
-        // BT audit: if the paired device is no longer in the current audio
-        // route, treat it as a disconnect that the system notification missed.
+        // BT audit (3-strike debounce): a single missed read on the audio
+        // route is often a transient — pairing wobble, a brief interrupting
+        // call, the car briefly switching to phone calls. Require N
+        // consecutive audits with the paired device missing before ending.
         if let pairedUID = trip.audioDeviceUID {
             let currentUID = AudioRoute.currentBluetoothOutput()?.uid
             if currentUID != pairedUID {
-                log.log("AUDIT: paired BT device gone from audio route — ending trip.",
-                        level: .info)
-                endTrip(reason: "BT disconnected (audit)")
-                return
+                consecutiveBTMisses += 1
+                if consecutiveBTMisses >= btMissesToConfirm {
+                    log.log("AUDIT: paired BT device missing for \(btMissesToConfirm) checks — ending trip.",
+                            level: .info)
+                    endTrip(reason: "BT disconnected (audit)")
+                    return
+                } else {
+                    log.log("AUDIT: paired BT device missing from audio route (\(consecutiveBTMisses)/\(btMissesToConfirm)); waiting for confirmation.",
+                            level: .warning)
+                }
+            } else if consecutiveBTMisses > 0 {
+                log.log("AUDIT: paired BT device back in route — resetting miss counter.")
+                consecutiveBTMisses = 0
             }
         }
 
@@ -381,12 +464,89 @@ final class TripDetector: NSObject, ObservableObject {
             return
         }
 
-        // Heartbeat — proves the audit is alive and reveals why we're not stopping.
-        log.log(String(format: "AUDIT heartbeat: %.1f km · %.0f min since last movement (threshold %.0f) · BT %@",
+        // Heartbeat — proves the audit is alive, reveals why we're not
+        // stopping, and surfaces GPS health (time since last update, last
+        // accuracy) so dropped-signal incidents are obvious in the log.
+        let secsSinceGPS = Int(Date().timeIntervalSince(lastLocationAt))
+        let gpsHealth: String
+        if lastLocationAt == .distantPast {
+            gpsHealth = "GPS none yet"
+        } else if lastAccuracy < 0 {
+            gpsHealth = "GPS \(secsSinceGPS)s ago · acc ?"
+        } else {
+            gpsHealth = String(format: "GPS %ds ago · acc %.0f m", secsSinceGPS, lastAccuracy)
+        }
+        log.log(String(format: "AUDIT heartbeat: %.1f km · %.0f min since last movement (threshold %.0f) · BT %@ · %@",
                        trip.distanceKm,
                        stationaryMin,
                        timeout,
-                       trip.audioDeviceUID == nil ? "n/a" : "ok"))
+                       trip.audioDeviceUID == nil ? "n/a" : "ok",
+                       gpsHealth))
+    }
+
+    /// Resume the previous trip instead of starting a fresh one when the
+    /// new wake-up looks like a continuation (same vehicle, within
+    /// `mergeWindowMinutes` minutes and `mergeRadiusMetres` metres of the
+    /// previous end). Prevents a real 50-km work day from being recorded as
+    /// 6 fragments because of brief stops (lunch, fuel, customer visit).
+    /// Returns true if a merge happened (caller skips the normal start path).
+    private func tryMergeWithRecentTrip(at location: CLLocation,
+                                        vehicle: Vehicle,
+                                        device: BluetoothAudioDevice?) -> Bool {
+        guard let lastTrip = store.trips
+            .filter({ $0.vehicleID == vehicle.id && !$0.isLocked })
+            .max(by: { $0.endedAt < $1.endedAt })
+        else { return false }
+
+        let minutesSinceLast = Date().timeIntervalSince(lastTrip.endedAt) / 60
+        guard minutesSinceLast < mergeWindowMinutes else { return false }
+
+        guard let endLat = lastTrip.endLat, let endLng = lastTrip.endLng else { return false }
+        let prevEnd = CLLocation(latitude: endLat, longitude: endLng)
+        let distance = prevEnd.distance(from: location)
+        guard distance < mergeRadiusMetres else { return false }
+
+        log.log(String(format: "Merging into recent trip (gap %.0f min, %.0f m). Keeping start time %@.",
+                       minutesSinceLast, distance,
+                       lastTrip.startedAt.formatted(date: .omitted, time: .shortened)),
+                level: .info)
+
+        // Pull the saved trip back out and resurrect it as the active state.
+        store.trips.removeAll { $0.id == lastTrip.id }
+        store.save()
+        if let supabase = store.supabaseService {
+            let id = lastTrip.id
+            Task { try? await supabase.deleteTrip(id: id) }
+        }
+
+        let resumed = ActiveTripState(
+            id: lastTrip.id,                                       // keep id for any external refs
+            vehicleID: vehicle.id,
+            audioDeviceUID: device?.uid,
+            startedAt: lastTrip.startedAt,                          // keep original start time
+            startLat: endLat,
+            startLng: endLng,
+            lastLat: location.coordinate.latitude,
+            lastLng: location.coordinate.longitude,
+            distanceKm: lastTrip.distanceKm,                        // carry forward accumulated km
+            lastMovementAt: Date(),
+            points: [RecordedPoint(
+                recordedAt: location.timestamp,
+                lat: location.coordinate.latitude,
+                lng: location.coordinate.longitude,
+                speedKmh: Float(max(0, location.speed) * 3.6),
+                accuracyM: Float(location.horizontalAccuracy)
+            )]
+        )
+        activeTrip = resumed
+        persistActiveTrip()
+        consecutiveBTMisses = 0
+
+        manager.allowsBackgroundLocationUpdates = true
+        store.settings.energyMode.apply(to: manager)
+        manager.startUpdatingLocation()
+        startAuditTimer()
+        return true
     }
 
     /// When no BT match is available, prefer the vehicle from the user's most
@@ -414,6 +574,8 @@ final class TripDetector: NSObject, ObservableObject {
 
     private func updateActiveTrip(with location: CLLocation) {
         guard var trip = activeTrip else { return }
+        lastLocationAt = Date()
+        lastAccuracy = location.horizontalAccuracy
         let previous = CLLocation(latitude: trip.lastLat, longitude: trip.lastLng)
         let metres = location.distance(from: previous)
         if metres > 10 {
@@ -468,6 +630,7 @@ final class TripDetector: NSObject, ObservableObject {
             manager.stopUpdatingLocation()
             motion.stop()
             stopAuditTimer()
+            consecutiveBTMisses = 0
             activeTrip = nil
             clearPersistedActiveTrip()
             return
@@ -550,6 +713,7 @@ final class TripDetector: NSObject, ObservableObject {
         manager.stopUpdatingLocation()
         motion.stop()
         stopAuditTimer()
+        consecutiveBTMisses = 0
         activeTrip = nil
         clearPersistedActiveTrip()
     }
@@ -579,7 +743,16 @@ final class TripDetector: NSObject, ObservableObject {
         }
     }
 
-    // MARK: - Persistence of active trip
+    // MARK: - Persistence of active trip + verification candidate
+
+    private var candidateURL: URL {
+        let dir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        return dir.appendingPathComponent("active-candidate.json")
+    }
+
+    private struct PersistedCandidate: Codable {
+        var startedAt: Date
+    }
 
     private func persistActiveTrip() {
         guard let trip = activeTrip else { return }
@@ -590,11 +763,43 @@ final class TripDetector: NSObject, ObservableObject {
         try? FileManager.default.removeItem(at: activeTripURL)
     }
 
+    private func persistCandidate() {
+        guard let c = candidate else { return }
+        let p = PersistedCandidate(startedAt: c.startedAt)
+        try? JSONEncoder().encode(p).write(to: candidateURL)
+    }
+
+    private func clearPersistedCandidate() {
+        try? FileManager.default.removeItem(at: candidateURL)
+    }
+
+    /// On launch, restore an in-progress trip if there is one, and clean up
+    /// stale verification candidates left from a previous run that was
+    /// killed mid-verification.
     private func restoreActiveTripIfAny() {
+        // 1. Stale candidate cleanup — if the previous run was killed while
+        //    verifying, the candidate file may be hours old. Drop anything
+        //    older than 2x the verification window.
+        if let data = try? Data(contentsOf: candidateURL),
+           let p = try? JSONDecoder().decode(PersistedCandidate.self, from: data) {
+            let age = Date().timeIntervalSince(p.startedAt)
+            if age > verificationSeconds * 2 {
+                log.log("Cleared stale verification candidate (age \(Int(age))s).", level: .info)
+                clearPersistedCandidate()
+            }
+        }
+
+        // 2. Restore in-progress trip and resume GPS + audit so the trip
+        //    end (BT disconnect or stationary) can still be detected.
         guard let data = try? Data(contentsOf: activeTripURL),
               let trip = try? JSONDecoder().decode(ActiveTripState.self, from: data) else { return }
         activeTrip = trip
-        log.log("Restored in-progress trip after relaunch.", level: .info)
+        log.log("Restored in-progress trip after relaunch; resumed GPS and audit.", level: .info)
+
+        manager.allowsBackgroundLocationUpdates = true
+        store.settings.energyMode.apply(to: manager)
+        manager.startUpdatingLocation()
+        startAuditTimer()
     }
 }
 
