@@ -6,7 +6,6 @@ struct SettingsView: View {
     @EnvironmentObject var supabase: SupabaseService
     @EnvironmentObject var detector: TripDetector
     @EnvironmentObject var location: LocationManager
-    @EnvironmentObject var notifications: NotificationManager
     @EnvironmentObject var appLock: AppLock
     @State private var exportURL: URL?
 
@@ -62,7 +61,10 @@ struct SettingsView: View {
 
                 // MARK: Auto-detect
                 Section {
-                    Toggle(isOn: $store.settings.autoDetectEnabled) {
+                    Toggle(isOn: Binding(
+                        get: { store.settings.autoDetectEnabled },
+                        set: { detector.setAutoDetect($0) }
+                    )) {
                         Label("Detect trips automatically", systemImage: "location.fill")
                     }
                     Text(autoDetectHint)
@@ -325,17 +327,9 @@ struct SettingsView: View {
                 store.save()
                 refreshExport()
             }
-            .onChange(of: store.settings.autoDetectEnabled) { _, enabled in
-                store.save()
-                Task {
-                    if enabled {
-                        _ = await notifications.requestPermission()
-                        await detector.requestEnable()
-                    } else {
-                        detector.disable()
-                    }
-                }
-            }
+            // Auto-detect enable/disable is handled by detector.setAutoDetect
+            // via the Toggle binding (shared with the Record-screen toggle),
+            // so no onChange handler is needed here.
             .onChange(of: store.settings.stationaryTimeoutMinutes) { store.save() }
             .onChange(of: store.settings.lockAfterDays) { store.save() }
             .onChange(of: store.settings.energyMode) { _, newMode in

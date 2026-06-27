@@ -129,6 +129,23 @@ final class TripDetector: NSObject, ObservableObject {
 
     // MARK: - Public API
 
+    /// Single entry point for the Auto-detect toggle, used by both the Record
+    /// screen quick-toggle and the Settings toggle so there's exactly one
+    /// code path (persist the preference, request notification permission +
+    /// location when turning on, tear down when turning off).
+    func setAutoDetect(_ enabled: Bool) {
+        store.settings.autoDetectEnabled = enabled
+        store.save()
+        Task {
+            if enabled {
+                if let notifications { _ = await notifications.requestPermission() }
+                await requestEnable()
+            } else {
+                disable()
+            }
+        }
+    }
+
     /// Called when the user flips the Auto-detect toggle on.
     func requestEnable() async {
         switch permission {

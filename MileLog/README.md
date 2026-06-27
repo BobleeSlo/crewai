@@ -129,6 +129,21 @@ for free with any Apple ID.
 - `TripEditor` pulls points lazily and renders them on an embedded MapKit
   polyline (`TripMapView`) with start/end annotations.
 
+**Phase 11 — Auto-detect quick toggle on Record screen** ✅
+- A prominent on/off card at the top of the Record tab mirrors the
+  Settings auto-detect toggle, so the user can stop background
+  tracking with one tap when it isn't needed (vacation, weekend,
+  personal day) instead of digging into Settings.
+- The card shows live status: "Watching for trips" / "Off — trips
+  won't be detected" / "Needs 'Always' location — open Settings" /
+  "Location denied".
+- `TripDetector.setAutoDetect(_:)` is now the single entry point for
+  both toggles (Record + Settings): it persists the preference,
+  requests notification permission + location when turning on, and
+  tears down monitoring when turning off. The old per-toggle logic
+  (Settings onChange handler) was removed so the two toggles can't
+  double-fire the enable/disable side-effects.
+
 **Phase 10 — Optional Face ID / Touch ID app lock** ✅
 - `BiometricAuth` wraps LocalAuthentication; reports the available
   biometry kind (Face ID / Touch ID / none) and authenticates with

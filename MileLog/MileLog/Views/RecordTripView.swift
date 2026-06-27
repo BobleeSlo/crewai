@@ -39,8 +39,10 @@ struct RecordTripView: View {
         NavigationStack {
             ScrollView(showsIndicators: false) {
                 VStack(spacing: 28) {
-                    vehicleSelector
+                    autoDetectToggle
                         .padding(.top, 8)
+
+                    vehicleSelector
 
                     heroBadge
                         .padding(.vertical, 8)
@@ -88,6 +90,56 @@ struct RecordTripView: View {
             endPoint: .center
         )
         .ignoresSafeArea()
+    }
+
+    /// Quick on/off for automatic trip detection — lets the user stop
+    /// background tracking when it isn't needed (vacation, weekend, personal
+    /// day) without going into Settings.
+    private var autoDetectToggle: some View {
+        VStack(spacing: 6) {
+            Toggle(isOn: Binding(
+                get: { store.settings.autoDetectEnabled },
+                set: { detector.setAutoDetect($0) }
+            )) {
+                HStack(spacing: 10) {
+                    Image(systemName: store.settings.autoDetectEnabled
+                          ? "dot.radiowaves.left.and.right"
+                          : "moon.zzz.fill")
+                        .foregroundStyle(store.settings.autoDetectEnabled
+                                         ? AnyShapeStyle(Theme.brandGradient)
+                                         : AnyShapeStyle(Color.secondary))
+                    VStack(alignment: .leading, spacing: 0) {
+                        Text("Automatic detection")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundColor(.primary)
+                        Text(autoDetectStatus)
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                    }
+                }
+            }
+            .tint(Theme.accent)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+            .background(Theme.cardBackground)
+            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        }
+    }
+
+    private var autoDetectStatus: String {
+        guard store.settings.autoDetectEnabled else {
+            return "Off — trips won't be detected automatically"
+        }
+        switch detector.permission {
+        case .authorizedAlways:
+            return detector.isEnabled ? "Watching for trips" : "Starting…"
+        case .authorizedWhenInUse, .notDetermined:
+            return "Needs 'Always' location — open Settings"
+        case .denied, .restricted:
+            return "Location denied — enable in iOS Settings"
+        @unknown default:
+            return "On"
+        }
     }
 
     private var vehicleSelector: some View {
