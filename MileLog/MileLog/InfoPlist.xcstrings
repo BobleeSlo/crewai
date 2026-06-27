@@ -81,6 +81,22 @@
           }
         }
       }
+    },
+    "NSFaceIDUsageDescription" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "MileLog uses Face ID to lock the app so only you can see your trips."
+          }
+        },
+        "sl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "MileLog uporablja Face ID za zaklepanje aplikacije, da lahko le vi vidite svoje vožnje."
+          }
+        }
+      }
     }
   }
 }

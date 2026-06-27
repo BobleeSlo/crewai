@@ -8,6 +8,7 @@ struct MileLogApp: App {
     @StateObject private var detectionLog: DetectionLog
     @StateObject private var notifications: NotificationManager
     @StateObject private var detector: TripDetector
+    @StateObject private var appLock = AppLock()
 
     init() {
         // Build the dependency graph manually so the detector can hold non-owning
@@ -43,15 +44,19 @@ struct MileLogApp: App {
                 .environmentObject(detectionLog)
                 .environmentObject(notifications)
                 .environmentObject(detector)
+                .environmentObject(appLock)
         }
     }
 }
 
 /// Shows the auth screen until the user signs in, then hands off to the tabbed UI
-/// and triggers an initial cloud sync.
+/// and triggers an initial cloud sync. When the optional biometric lock is on,
+/// a LockView covers the content until the user passes Face ID / Touch ID.
 struct RootView: View {
     @EnvironmentObject var store: Store
     @EnvironmentObject var supabase: SupabaseService
+    @EnvironmentObject var appLock: AppLock
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         Group {
@@ -60,9 +65,21 @@ struct RootView: View {
                     .task(id: supabase.userEmail) {
                         await store.initialSync(via: supabase)
                     }
+                    .overlay {
+                        if appLock.isLocked {
+                            LockView().transition(.opacity)
+                        }
+                    }
             } else {
                 AuthView()
             }
+        }
+        .animation(.easeInOut(duration: 0.2), value: appLock.isLocked)
+        .onChange(of: scenePhase) { _, phase in
+            // Re-lock whenever the app is sent to the background, so returning
+            // to MileLog requires Face ID again. Only .background triggers it —
+            // .inactive happens during the Face ID sheet itself.
+            if phase == .background { appLock.lock() }
         }
     }
 }

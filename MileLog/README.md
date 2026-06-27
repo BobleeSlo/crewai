@@ -129,6 +129,27 @@ for free with any Apple ID.
 - `TripEditor` pulls points lazily and renders them on an embedded MapKit
   polyline (`TripMapView`) with start/end annotations.
 
+**Phase 10 — Optional Face ID / Touch ID app lock** ✅
+- `BiometricAuth` wraps LocalAuthentication; reports the available
+  biometry kind (Face ID / Touch ID / none) and authenticates with
+  `.deviceOwnerAuthentication` so the device passcode is a fallback —
+  the user can never be permanently locked out.
+- `AppLock` (ObservableObject) holds the on/off preference in
+  UserDefaults (device-local, NOT synced to the cloud — biometric
+  choice shouldn't follow the account to other devices) and the
+  `isLocked` state.
+- `LockView` is a full-screen brand-gradient lock that auto-prompts
+  on appear and offers a manual Unlock button.
+- `RootView` overlays `LockView` when authenticated + locked, and
+  re-locks on `scenePhase == .background` (only `.background`, so the
+  Face ID system sheet's `.inactive` phase doesn't false-trigger).
+- **Settings → Security** toggle: enabling runs a biometric check
+  first and only turns on if it passes; shows a disabled hint when no
+  biometry is enrolled on the device.
+- Info.plist needs `NSFaceIDUsageDescription` (added to
+  InfoPlist.xcstrings, en + sl). The string catalog supplies it when
+  localization is enabled; otherwise add the key manually in Xcode.
+
 **Phase 9 — Detector hardening from real-drive logs** ✅
 Driven by analysing on-device Detection logs from real trips. Adds:
 - **Trip merge**: new trip within 15 min + 300 m of previous end

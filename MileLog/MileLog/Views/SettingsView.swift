@@ -7,6 +7,7 @@ struct SettingsView: View {
     @EnvironmentObject var detector: TripDetector
     @EnvironmentObject var location: LocationManager
     @EnvironmentObject var notifications: NotificationManager
+    @EnvironmentObject var appLock: AppLock
     @State private var exportURL: URL?
 
     @State private var homeInput = ""
@@ -255,6 +256,38 @@ struct SettingsView: View {
                     }
                 } header: {
                     SectionHeaderLabel(title: "All trips (CSV)", systemImage: "tablecells")
+                }
+
+                // MARK: Security (biometric lock)
+                Section {
+                    if BiometricAuth.isAvailable {
+                        Toggle(isOn: Binding(
+                            get: { appLock.enabled },
+                            set: { wantOn in
+                                Task {
+                                    if wantOn {
+                                        await appLock.enable()   // only enables on successful auth
+                                    } else {
+                                        appLock.disable()
+                                    }
+                                }
+                            }
+                        )) {
+                            Label("Require \(BiometricAuth.available.label)",
+                                  systemImage: BiometricAuth.available.systemImage)
+                        }
+                        Text("When on, MileLog asks for \(BiometricAuth.available.label) each time you open it or return from the background.")
+                            .font(.footnote)
+                            .foregroundColor(.secondary)
+                    } else {
+                        Label("Face ID / Touch ID not available", systemImage: "lock.slash")
+                            .foregroundColor(.secondary)
+                        Text("Set up Face ID or Touch ID in iOS Settings to enable app lock.")
+                            .font(.footnote)
+                            .foregroundColor(.secondary)
+                    }
+                } header: {
+                    SectionHeaderLabel(title: "Security", systemImage: "lock.shield")
                 }
 
                 // MARK: Account
