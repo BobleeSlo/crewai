@@ -30,4 +30,31 @@ enum AudioRoute {
         }
         return nil
     }
+
+    /// True if a previously-paired car is *still connected*, even when it is
+    /// not the active audio OUTPUT at this instant. CarPlay / Bluetooth audio
+    /// frequently stop being the current output during quiet stretches (no
+    /// music, no nav voice), which made a pure `currentBluetoothOutput()`
+    /// check falsely report "BT missing" mid-drive. We therefore also scan
+    /// the session's available inputs, where a connected car remains listed.
+    static func isPairedDevicePresent(uid: String?, name: String?) -> Bool {
+        guard uid != nil || (name?.isEmpty == false) else { return false }
+        let session = AVAudioSession.sharedInstance()
+
+        func matches(portUID: String, portName: String) -> Bool {
+            if let uid, !uid.isEmpty, portUID == uid { return true }
+            if let name, !name.isEmpty, portName == name { return true }
+            return false
+        }
+
+        for output in session.currentRoute.outputs where bluetoothPorts.contains(output.portType) {
+            if matches(portUID: output.uid, portName: output.portName) { return true }
+        }
+        if let inputs = session.availableInputs {
+            for input in inputs where bluetoothPorts.contains(input.portType) {
+                if matches(portUID: input.uid, portName: input.portName) { return true }
+            }
+        }
+        return false
+    }
 }

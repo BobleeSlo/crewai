@@ -129,6 +129,33 @@ for free with any Apple ID.
 - `TripEditor` pulls points lazily and renders them on an embedded MapKit
   polyline (`TripMapView`) with start/end annotations.
 
+**Phase 12 — State-based trip-end + velocity logging** ✅
+Driven by a field log where real CarPlay drives were chopped into
+0.4 / 2.4 km fragments (all ended "stationary 5 min" while CarPlay
+was still connected) and a ~3-hour afternoon drive was never recorded
+(endless "Verification FAILED"). Root cause: iOS suspends the app
+mid-drive, GPS callbacks stop for ~5 min at a time, `lastMovementAt`
+goes stale, and the time-based stationary audit ended live trips.
+- **State-based keep-alive**: a trip stays active while the car is in
+  use — paired Bluetooth connected **OR** the car still moving. It
+  ends only when **disconnected AND stationary** past the timeout.
+  Traffic-light stops, quiet CarPlay stretches and GPS-stale gaps no
+  longer cut a drive short.
+- **Robust car-presence detection**: `AudioRoute.isPairedDevicePresent`
+  checks the audio route's outputs *and* available inputs, so a
+  CarPlay/BT car that's connected but not the active output during a
+  quiet stretch is still recognised (fixes the false "BT missing"
+  flapping). Vehicle's BT name is stored on the active trip for a
+  second matching signal.
+- **Route-change no longer ends trips directly**: an
+  `.oldDeviceUnavailable` audio event now triggers an audit pass
+  (debounce + moving check) instead of an immediate end.
+- **Hard safety cap**: even if BT erroneously reads "present", a trip
+  ends after 30 min with zero movement.
+- **Velocity in the log**: `Trip.lastSpeedKmh` tracked per update; each
+  AUDIT heartbeat now logs `v X km/h`, the BT state, GPS freshness,
+  and which keep-alive kept the trip open (`BT` / `moving` / `—`).
+
 **Phase 11 — Auto-detect quick toggle on Record screen** ✅
 - A prominent on/off card at the top of the Record tab mirrors the
   Settings auto-detect toggle, so the user can stop background
