@@ -129,6 +129,46 @@ for free with any Apple ID.
 - `TripEditor` pulls points lazily and renders them on an embedded MapKit
   polyline (`TripMapView`) with start/end annotations.
 
+**Phase 13 — Vehicle-switch detection + full tracking audit** ✅
+Driven by a report that switching cars mid-session wasn't detected — the
+Phase 12 "keep trip alive while moving" rule silently attributed a new
+car's entire drive to the old one, since no code ever re-checked which
+vehicle's Bluetooth was actually connected during an active trip. Full
+audit + two independent adversarial review rounds; see
+`docs/TRACKING-AUDIT-2026-06-28.md` for the complete findings/fix record
+and `docs/TRACKING-KNOWLEDGE-BASE.md` for the durable design reference.
+- **Vehicle-switch detection**: new `checkVehicleSwitch()`, checked on
+  every GPS update, every 60s audit tick, and immediately on
+  `.newDeviceAvailable` audio route events. Debounced (8s consistent
+  detection required) to avoid one-off BLE flicker triggering a false
+  switch. Ends the current trip and starts a fresh one for the newly
+  detected vehicle, without allowing that new trip to merge into an
+  older saved trip for it.
+- **Removed a second, conflicting stationary-check** (`checkStationary()`)
+  that ended trips purely on elapsed time with no Bluetooth awareness —
+  it could fire on stray GPS jitter and cut a trip mid-drive even with
+  BT still connected, contradicting the Phase 12 policy. All stationary
+  decisions now go exclusively through the BT-aware audit.
+- **`locationManagerDidPauseLocationUpdates`** (iOS's own "you're
+  stationary" signal in Low Power mode) no longer ends the trip
+  unconditionally — it defers to the same BT-aware audit logic.
+- **Stricter Bluetooth vehicle matching**: UID match is trusted
+  unconditionally; a name-only match is used only if it uniquely
+  identifies one active vehicle — if two active vehicles share a BT
+  name (a real risk: many head units report generic names like
+  "CarPlay"), the app refuses to guess and logs an error asking the
+  user to re-pair, rather than silently picking one.
+- **Cross-vehicle merge guard**: a trip will not merge into an earlier
+  trip for the same vehicle if a *different* vehicle was driven in
+  between — closes an A→B→A bounce scenario that could otherwise
+  back-date a resumed trip's start time across the other vehicle's
+  interlude.
+- **Archived vehicles excluded** from all Bluetooth matching and
+  fallback-vehicle selection.
+- **Active-trip persistence throttled** to once per 3 seconds (was:
+  every single GPS callback) to reduce I/O that could otherwise delay
+  the very location callbacks this detector depends on.
+
 **Phase 12 — State-based trip-end + velocity logging** ✅
 Driven by a field log where real CarPlay drives were chopped into
 0.4 / 2.4 km fragments (all ended "stationary 5 min" while CarPlay

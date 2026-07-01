@@ -117,6 +117,26 @@ final class TripDetector: NSObject, ObservableObject {
     private let movingSpeedKmh: Double = 3
     private let stationaryHardCapMinutes: Double = 30
 
+    // Vehicle-switch debounce: require the newly-detected vehicle's BT to be
+    // observed consistently for this long before actually switching, so a
+    // one-off BLE proximity flicker (e.g. briefly picking up a nearby parked
+    // car's signal) can't fragment a real drive into extra rows. BT-loss
+    // uses a 3-strike counter spaced ~60s apart (audit cadence); BT-gain is
+    // checked far more often (every GPS update + every route-change event),
+    // so a short wall-clock window is used instead of a tick counter.
+    private var pendingSwitchVehicleID: UUID?
+    private var pendingSwitchFirstSeenAt: Date?
+    private let switchConfirmSeconds: TimeInterval = 8
+
+    // Active-trip persistence throttle: JSON-encoding + rewriting the whole
+    // active-trip file on every single GPS callback (which can arrive every
+    // few metres on a long drive) is real I/O cost that risks delaying the
+    // very callback processing this detector depends on. State-transition
+    // moments (trip start, switch, merge) force an immediate write; routine
+    // in-trip updates are throttled.
+    private var lastPersistAt: Date = .distantPast
+    private let persistThrottleSeconds: TimeInterval = 3
+
     // Trip-merge tolerances: a new trip that starts within this much time
     // AND distance of the previous trip's end is treated as a continuation
     // of that trip instead of a separate row.
@@ -386,12 +406,15 @@ final class TripDetector: NSObject, ObservableObject {
     }
 
     private func commitTripStart(at location: CLLocation, startedAt: Date,
-                                 vehicle: Vehicle, device: BluetoothAudioDevice?) {
+                                 vehicle: Vehicle, device: BluetoothAudioDevice?,
+                                 allowMerge: Bool = true) {
         // Trip merge: if this matches a continuation of the previous trip
         // (same vehicle, within mergeWindow minutes and mergeRadius metres
         // of the previous end coords), resume that trip instead of splitting
         // a real drive into multiple rows because of a brief stop.
-        if tryMergeWithRecentTrip(at: location, vehicle: vehicle, device: device) {
+        // Disabled (allowMerge: false) when this start is the result of a
+        // detected vehicle switch — see checkVehicleSwitch's doc comment.
+        if allowMerge, tryMergeWithRecentTrip(at: location, vehicle: vehicle, device: device) {
             return
         }
 
@@ -417,8 +440,10 @@ final class TripDetector: NSObject, ObservableObject {
             )]
         )
         activeTrip = state
-        persistActiveTrip()
+        persistActiveTrip(force: true)
         consecutiveBTMisses = 0
+        pendingSwitchVehicleID = nil
+        pendingSwitchFirstSeenAt = nil
 
         manager.allowsBackgroundLocationUpdates = true
         store.settings.energyMode.apply(to: manager)
@@ -468,6 +493,11 @@ final class TripDetector: NSObject, ObservableObject {
         if Date().timeIntervalSince(lastAuditAt) < auditDedupeWindow { return }
         lastAuditAt = Date()
 
+        // Vehicle-switch check runs FIRST, before any of this trip's own
+        // BT/stationary bookkeeping — if the car changed, none of that
+        // bookkeeping is relevant anymore.
+        if checkVehicleSwitch() { return }
+
         let stationaryMin = Date().timeIntervalSince(trip.lastMovementAt) / 60
         let timeout = Double(store.settings.stationaryTimeoutMinutes)
         let hasPairing = trip.audioDeviceUID != nil || (trip.audioDeviceName?.isEmpty == false)
@@ -487,8 +517,16 @@ final class TripDetector: NSObject, ObservableObject {
                 consecutiveBTMisses = 0
             } else {
                 consecutiveBTMisses += 1
-                log.log("AUDIT: paired BT device missing (\(consecutiveBTMisses)/\(btMissesToConfirm)).",
-                        level: .warning)
+                // Only log while still counting toward confirmation — once
+                // confirmed gone the trip may legitimately stay open via the
+                // "moving" keep-alive for a long time (e.g. BT dropped mid-
+                // drive due to a phone call), and re-logging this warning
+                // every 60s for the rest of the drive would be pure noise.
+                // The heartbeat line below still reports "missing(n)" once.
+                if consecutiveBTMisses <= btMissesToConfirm {
+                    log.log("AUDIT: paired BT device missing (\(consecutiveBTMisses)/\(btMissesToConfirm)).",
+                            level: .warning)
+                }
             }
         }
         // "Confirmed disconnected" = paired but missing for N consecutive audits.
@@ -554,6 +592,25 @@ final class TripDetector: NSObject, ObservableObject {
         let minutesSinceLast = Date().timeIntervalSince(lastTrip.endedAt) / 60
         guard minutesSinceLast < mergeWindowMinutes else { return false }
 
+        // Refuse to merge if a DIFFERENT vehicle's trip started after this
+        // one ended — that means the vehicle was switched away and back (an
+        // A→B→A bounce). Merging would silently back-date the resumed A
+        // trip's start time across the B interlude, mis-representing when A
+        // was actually being driven again. Disabling merge only at the
+        // switch-triggered trip's OWN start (checkVehicleSwitch's
+        // allowMerge: false) isn't enough on its own — that trip's later,
+        // NORMAL end can still merge FORWARD into this pre-switch trip once
+        // it ends, which is exactly the gap this check closes. Scoped
+        // automatically to roughly the merge window since lastTrip.endedAt
+        // is already known to be within mergeWindowMinutes of now.
+        if let interveningTrip = store.trips.first(where: {
+            $0.vehicleID != vehicle.id && $0.startedAt > lastTrip.endedAt
+        }) {
+            log.log("Merge skipped: \(store.vehicleName(interveningTrip.vehicleID)) was driven after this trip ended — avoiding a cross-vehicle merge that would back-date the resumed trip.",
+                    level: .info)
+            return false
+        }
+
         guard let endLat = lastTrip.endLat, let endLng = lastTrip.endLng else { return false }
         let prevEnd = CLLocation(latitude: endLat, longitude: endLng)
         let distance = prevEnd.distance(from: location)
@@ -594,8 +651,10 @@ final class TripDetector: NSObject, ObservableObject {
             )]
         )
         activeTrip = resumed
-        persistActiveTrip()
+        persistActiveTrip(force: true)
         consecutiveBTMisses = 0
+        pendingSwitchVehicleID = nil
+        pendingSwitchFirstSeenAt = nil
 
         manager.allowsBackgroundLocationUpdates = true
         store.settings.energyMode.apply(to: manager)
@@ -606,28 +665,135 @@ final class TripDetector: NSObject, ObservableObject {
 
     /// When no BT match is available, prefer the vehicle from the user's most
     /// recent trip instead of arbitrarily picking the first one in the list.
+    /// Skips archived vehicles — an archived vehicle should never be silently
+    /// reused as the fallback for a brand-new trip.
     private func fallbackVehicle() -> Vehicle? {
         if let latest = store.trips.sorted(by: { $0.startedAt > $1.startedAt }).first,
-           let v = store.vehicle(latest.vehicleID) {
+           let v = store.vehicle(latest.vehicleID), v.isActive {
             return v
         }
-        return store.vehicles.first
+        return store.activeVehicles.first ?? store.vehicles.first
     }
 
+    /// Only matches against active (non-archived) vehicles — an archived
+    /// vehicle's stale Bluetooth pairing must not silently claim trips.
+    ///
+    /// Matching strategy, most to least confident:
+    ///   1. Exact UID match — unique per physical BT device, so this is
+    ///      trusted unconditionally.
+    ///   2. Name match, ONLY if it uniquely identifies a single active
+    ///      vehicle. Many head units report a generic name ("CarPlay",
+    ///      "Car Multimedia") rather than something car-specific — this
+    ///      app's own field data shows more than one vehicle pairing as
+    ///      plain "CarPlay". If the connecting device's name matches more
+    ///      than one registered vehicle, guessing which one is exactly the
+    ///      kind of silent mis-attribution this app exists to prevent, so
+    ///      we refuse and log an error asking the user to re-pair instead.
     private func matchVehicle(for device: BluetoothAudioDevice?) -> Vehicle? {
         guard let device else { return nil }
-        if let v = store.vehicles.first(where: { !$0.bluetoothUID.isEmpty && $0.bluetoothUID == device.uid }) {
+        let pool = store.activeVehicles
+
+        if let v = pool.first(where: { !$0.bluetoothUID.isEmpty && $0.bluetoothUID == device.uid }) {
             return v
         }
-        if let v = store.vehicles.first(where: { !$0.bluetoothName.isEmpty && $0.bluetoothName == device.name }) {
-            return v
+
+        let nameMatches = pool.filter { !$0.bluetoothName.isEmpty && $0.bluetoothName == device.name }
+        if nameMatches.count == 1 {
+            log.log("Vehicle matched by BT name only (no UID match): '\(device.name)' → \(nameMatches[0].name).",
+                    level: .warning)
+            return nameMatches[0]
+        }
+        if nameMatches.count > 1 {
+            log.log("AMBIGUOUS BT name '\(device.name)' matches \(nameMatches.count) active vehicles (\(nameMatches.map(\.name).joined(separator: ", "))) — refusing to guess. Re-pair each vehicle from its own Bluetooth connection so their IDs are unique.",
+                    level: .error)
         }
         return nil
+    }
+
+    /// Detects when the phone has connected to a DIFFERENT known vehicle's
+    /// Bluetooth while a trip for the CURRENT vehicle is still active — e.g.
+    /// the user parked car A, walked into car B, and car B's paired BT
+    /// connected. Without this check, the Phase 12 "keep trip alive while
+    /// moving" rule silently attributes car B's entire drive to car A,
+    /// because motion alone was treated as sufficient justification to keep
+    /// ANY trip open, regardless of which car is actually being driven.
+    ///
+    /// Requires the new vehicle's BT to be seen consistently for
+    /// `switchConfirmSeconds` before acting (see debounce comment above) —
+    /// adversarial review found that a single-read trigger here, while the
+    /// symmetric BT-loss check uses a 3-strike debounce, made this check
+    /// more trigger-happy than the disconnect logic it was meant to
+    /// complement, risking exactly the kind of trip fragmentation /
+    /// silent distance loss this whole feature exists to prevent.
+    ///
+    /// Ends the current trip immediately (using its last known point as the
+    /// transition point) and starts a fresh one for the newly-detected
+    /// vehicle, WITHOUT allowing that new trip to merge into an older saved
+    /// trip (a detected switch is by definition a discontinuous event —
+    /// resurrecting an unrelated earlier trip would misattribute distance
+    /// and back-date its start time). Returns true if it acted, so callers
+    /// can bail out of whatever they were doing with the now-stale trip
+    /// reference.
+    @discardableResult
+    private func checkVehicleSwitch() -> Bool {
+        guard let trip = activeTrip else { return false }
+        guard let currentDevice = AudioRoute.currentBluetoothOutput() else {
+            pendingSwitchVehicleID = nil
+            pendingSwitchFirstSeenAt = nil
+            return false
+        }
+
+        let matchesCurrentPairing =
+            (trip.audioDeviceUID != nil && !trip.audioDeviceUID!.isEmpty && currentDevice.uid == trip.audioDeviceUID) ||
+            (trip.audioDeviceName != nil && !trip.audioDeviceName!.isEmpty && currentDevice.name == trip.audioDeviceName)
+        guard !matchesCurrentPairing else {
+            pendingSwitchVehicleID = nil
+            pendingSwitchFirstSeenAt = nil
+            return false
+        }
+
+        guard let newVehicle = matchVehicle(for: currentDevice), newVehicle.id != trip.vehicleID else {
+            pendingSwitchVehicleID = nil
+            pendingSwitchFirstSeenAt = nil
+            return false
+        }
+
+        if pendingSwitchVehicleID == newVehicle.id, let firstSeen = pendingSwitchFirstSeenAt {
+            guard Date().timeIntervalSince(firstSeen) >= switchConfirmSeconds else { return false }
+        } else {
+            pendingSwitchVehicleID = newVehicle.id
+            pendingSwitchFirstSeenAt = Date()
+            log.log("Possible vehicle switch to \(newVehicle.name) via BT '\(currentDevice.name)' — confirming over \(Int(switchConfirmSeconds))s before acting.",
+                    level: .info)
+            return false
+        }
+
+        log.log("VEHICLE SWITCH confirmed: BT changed from '\(trip.audioDeviceName ?? "none")' to '\(currentDevice.name)' (\(newVehicle.name)). Ending current trip and starting a new one.",
+                level: .warning)
+
+        pendingSwitchVehicleID = nil
+        pendingSwitchFirstSeenAt = nil
+
+        let switchLocation = CLLocation(latitude: trip.lastLat, longitude: trip.lastLng)
+        endTrip(reason: "vehicle switched to \(newVehicle.name)")
+        commitTripStart(at: switchLocation, startedAt: Date(), vehicle: newVehicle,
+                        device: currentDevice, allowMerge: false)
+        return true
     }
 
     // MARK: - Trip progress
 
     private func updateActiveTrip(with location: CLLocation) {
+        // Vehicle-switch check runs on every location update too (not just
+        // the 60s audit tick) — AVAudioSession route changes are usually
+        // near-instant, but this is a cheap, redundant safety net given how
+        // costly a mis-attributed trip is (it feeds tax/reimbursement
+        // reports). If it fires, the old trip has already been ended and a
+        // new one started for the new vehicle; this specific location fix
+        // belongs to neither cleanly, so we drop it and let the next update
+        // populate the new trip.
+        if checkVehicleSwitch() { return }
+
         guard var trip = activeTrip else { return }
         lastLocationAt = Date()
         lastAccuracy = location.horizontalAccuracy
@@ -660,15 +826,22 @@ final class TripDetector: NSObject, ObservableObject {
         }
         activeTrip = trip
         persistActiveTrip()
-        checkStationary()
-    }
-
-    private func checkStationary() {
-        guard let trip = activeTrip else { return }
-        let minutes = Date().timeIntervalSince(trip.lastMovementAt) / 60.0
-        if minutes >= Double(store.settings.stationaryTimeoutMinutes) {
-            endTrip(reason: "stationary for \(Int(minutes)) min")
-        }
+        // NOTE: stationary-based trip ending is intentionally NOT done here.
+        // A naive per-update time check ("minutes since movement >= timeout
+        // → end trip") used to live in this spot, but it ignored Bluetooth
+        // connection state entirely. GPS multipath/jitter routinely produces
+        // a spurious position update even while parked with the engine
+        // idling (e.g. waiting at a light), and if one landed after the
+        // timeout had elapsed, that old code ended the trip even though the
+        // car's Bluetooth was still connected — directly contradicting the
+        // "keep the trip alive while connected or moving" policy documented
+        // on auditActiveTrip(). All stationary-based ending now goes through
+        // auditActiveTrip() exclusively, which is BT-aware. The audit timer
+        // (60s cadence) plus the fact that CLLocationManager simply doesn't
+        // call this method while genuinely stationary (no update exceeds
+        // distanceFilter) means centralizing here costs at most ~60s of
+        // extra detection latency against a multi-minute timeout — an
+        // acceptable trade for removing a source of incorrect early endings.
     }
 
     // MARK: - Trip end
@@ -795,13 +968,22 @@ final class TripDetector: NSObject, ObservableObject {
         Task { @MainActor [weak self] in
             guard let self else { return }
             self.log.log("Audio route change: \(reason)")
-            // We no longer end the trip directly here. A route change (even
-            // .oldDeviceUnavailable) is frequently transient with CarPlay, and
-            // ending immediately cut real drives short. Instead, run an audit
-            // pass: it applies the 3-strike debounce AND the keep-alive-while-
-            // moving rule, so the trip only ends when truly disconnected and
-            // stationary.
-            if reason == .oldDeviceUnavailable, self.activeTrip != nil {
+            guard self.activeTrip != nil else { return }
+
+            // Immediate vehicle-switch check — a new car's Bluetooth becoming
+            // the active route is exactly what .newDeviceAvailable means, so
+            // we don't wait for the next 60s audit tick to notice the swap.
+            if reason == .newDeviceAvailable, self.checkVehicleSwitch() {
+                return
+            }
+
+            // We no longer end the trip directly here on disconnect. A route
+            // change (even .oldDeviceUnavailable) is frequently transient
+            // with CarPlay, and ending immediately cut real drives short.
+            // Instead, run a full audit pass: it applies the 3-strike
+            // debounce AND the keep-alive-while-moving rule, so the trip
+            // only ends when truly disconnected and stationary.
+            if reason == .oldDeviceUnavailable {
                 self.lastAuditAt = .distantPast   // bypass dedupe for this check
                 self.auditActiveTrip()
             }
@@ -819,8 +1001,18 @@ final class TripDetector: NSObject, ObservableObject {
         var startedAt: Date
     }
 
-    private func persistActiveTrip() {
+    /// Writes the active trip to disk for crash/kill recovery. Throttled to
+    /// avoid a full JSON re-encode + file rewrite on every single GPS
+    /// callback — on a long drive those can arrive every few metres, and
+    /// adversarial review flagged that I/O cost as ironically risking the
+    /// exact dropped/delayed-callback problem this detector exists to avoid.
+    /// `force` bypasses the throttle for state-transition moments (trip
+    /// start, vehicle switch, merge) where an accurate on-disk snapshot
+    /// immediately after the transition matters most.
+    private func persistActiveTrip(force: Bool = false) {
         guard let trip = activeTrip else { return }
+        guard force || Date().timeIntervalSince(lastPersistAt) >= persistThrottleSeconds else { return }
+        lastPersistAt = Date()
         try? JSONEncoder().encode(trip).write(to: activeTripURL)
     }
 
@@ -903,14 +1095,18 @@ extension TripDetector: CLLocationManagerDelegate {
     }
 
     /// iOS itself decided we're stationary and paused GPS — happens in Low
-    /// Power energy mode. Treat as a definitive stationary signal and end
-    /// the trip rather than waiting for the next wake.
+    /// Power energy mode. This does NOT end the trip unconditionally: it
+    /// defers to auditActiveTrip(), which is BT-aware. A car stopped at a
+    /// long light with Bluetooth still connected must stay open even though
+    /// iOS has paused GPS — ending here regardless of BT state would
+    /// reintroduce the exact bug fixed by removing the old checkStationary().
     nonisolated func locationManagerDidPauseLocationUpdates(_ manager: CLLocationManager) {
         Task { @MainActor [weak self] in
             guard let self else { return }
             self.log.log("iOS auto-paused location updates (stationary).", level: .info)
             if self.activeTrip != nil {
-                self.endTrip(reason: "iOS auto-paused (stationary)")
+                self.lastAuditAt = .distantPast   // bypass dedupe for this check
+                self.auditActiveTrip()
             }
         }
     }
