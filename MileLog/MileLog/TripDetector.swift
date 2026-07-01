@@ -477,37 +477,69 @@ final class TripDetector: NSObject, ObservableObject {
             return
         }
 
-        // Duplicate-call suppression — a route-change handler can nudge the
-        // audit just after the 60s timer fires.
+        // --- Vehicle switch detection ---------------------------------------
+        // Runs on EVERY call, deliberately outside the dedupe gate below —
+        // unlike the BT-miss debounce (which must stay rate-limited, see the
+        // gate's comment), re-evaluating "did the connected device change to
+        // a different vehicle" costs nothing extra and must never be skipped:
+        // a route-change burst that suppressed this check could delay
+        // detecting a real switch.
+        //
+        // Case 1: a DIFFERENT *registered* vehicle's Bluetooth is now
+        // connected. Unambiguous, high-confidence evidence the driver
+        // switched cars — e.g. parked car A and got into car B, both paired
+        // vehicles. Unlike a plain "BT missing" reading (noisy, intentionally
+        // debounced 3x) a positive match to a specific *other* known vehicle
+        // isn't something that benefits from waiting for stationary +
+        // debounce: acting immediately, regardless of whether GPS still
+        // shows movement, is what closes the "switched car but kept tracking
+        // the old one in false mode" failure reported in the field.
+        //
+        // Case 2: a specific *different* Bluetooth device is connected (not
+        // the trip's own paired device) but it doesn't match any registered
+        // vehicle — e.g. the new car was never given a Bluetooth pairing in
+        // Settings. We still know for certain the car changed (a concrete
+        // other device is occupying the route, not just "missing"), so the
+        // old trip is ended immediately rather than silently continuing to
+        // attribute distance to it — we just don't guess which vehicle the
+        // new drive belongs to; the ordinary wake/verification path picks
+        // that up once GPS moves again, the same way any unmatched trip
+        // start is resolved.
+        let hadPairing = trip.audioDeviceUID != nil || (trip.audioDeviceName?.isEmpty == false)
+        let currentDevice = AudioRoute.currentBluetoothOutput()
+        let isOwnDevice = currentDevice != nil &&
+            (currentDevice?.uid == trip.audioDeviceUID
+                || (trip.audioDeviceName?.isEmpty == false && currentDevice?.name == trip.audioDeviceName))
+        if !isOwnDevice, let currentDevice {
+            if let newVehicle = matchVehicle(for: currentDevice), newVehicle.id != trip.vehicleID {
+                let oldName = store.vehicle(trip.vehicleID)?.name ?? "previous vehicle"
+                log.log("AUDIT: vehicle switch detected — now connected to \(newVehicle.name) (was \(oldName)). Ending trip and starting a new one.",
+                        level: .warning)
+                let lastKnownLocation = CLLocation(latitude: trip.lastLat, longitude: trip.lastLng)
+                endTrip(reason: "vehicle switched to \(newVehicle.name)")
+                commitTripStart(at: lastKnownLocation, startedAt: Date(), vehicle: newVehicle, device: currentDevice)
+                return
+            } else if hadPairing, matchVehicle(for: currentDevice) == nil {
+                log.log("AUDIT: a different, unrecognized Bluetooth device (\(currentDevice.name)) is now connected — ending trip; the next drive will be picked up separately once it's confirmed.",
+                        level: .warning)
+                endTrip(reason: "connected device changed to unrecognized \(currentDevice.name)")
+                return
+            }
+        }
+
+        // Duplicate-call suppression for the BT-miss debounce + heartbeat
+        // below. Route-change bursts (e.g. a phone call renegotiating HFP, or
+        // repeated CarPlay reconnects) can invoke this several times within
+        // the same second; the 3-strike counter is meant to represent ~3
+        // minutes of real disconnection, so it must stay gated here even
+        // when audioRouteChanged() nudges this function directly — it no
+        // longer bypasses this window (see audioRouteChanged).
         if Date().timeIntervalSince(lastAuditAt) < auditDedupeWindow { return }
         lastAuditAt = Date()
 
-        // --- Vehicle switch detection ---------------------------------------
-        // A DIFFERENT registered vehicle's Bluetooth is now connected. This is
-        // unambiguous, high-confidence evidence the driver switched cars — e.g.
-        // parked car A and got into car B, both paired vehicles. Unlike a plain
-        // "BT missing" reading (noisy, intentionally debounced 3x) a positive
-        // match to a specific *other* known vehicle isn't something that
-        // benefits from waiting for stationary + debounce: acting immediately,
-        // regardless of whether GPS still shows movement, is what closes the
-        // "switched car but kept tracking the old one in false mode" failure
-        // reported in the field — previously the trip-alive rule below ("keep
-        // alive while moving") meant a swap mid-drive was never detected at
-        // all, silently attributing the new car's whole trip to the old one.
-        let currentDevice = AudioRoute.currentBluetoothOutput()
-        if let newVehicle = matchVehicle(for: currentDevice), newVehicle.id != trip.vehicleID {
-            let oldName = store.vehicle(trip.vehicleID)?.name ?? "previous vehicle"
-            log.log("AUDIT: vehicle switch detected — now connected to \(newVehicle.name) (was \(oldName)). Ending trip and starting a new one.",
-                    level: .warning)
-            let lastKnownLocation = CLLocation(latitude: trip.lastLat, longitude: trip.lastLng)
-            endTrip(reason: "vehicle switched to \(newVehicle.name)")
-            commitTripStart(at: lastKnownLocation, startedAt: Date(), vehicle: newVehicle, device: currentDevice)
-            return
-        }
-
         let stationaryMin = Date().timeIntervalSince(trip.lastMovementAt) / 60
         let timeout = Double(store.settings.stationaryTimeoutMinutes)
-        let hasPairing = trip.audioDeviceUID != nil || (trip.audioDeviceName?.isEmpty == false)
+        let hasPairing = hadPairing
 
         // --- Bluetooth presence (3-strike debounce on "gone") -------------
         // Uses isPairedDevicePresent (checks outputs + available inputs) so a
@@ -656,8 +688,16 @@ final class TripDetector: NSObject, ObservableObject {
         if let v = store.vehicles.first(where: { !$0.bluetoothUID.isEmpty && $0.bluetoothUID == device.uid }) {
             return v
         }
-        if let v = store.vehicles.first(where: { !$0.bluetoothName.isEmpty && $0.bluetoothName == device.name }) {
-            return v
+        // Only trust a name-based fallback match when it's unambiguous. Two
+        // vehicles sharing the same generic head-unit name (e.g. two of the
+        // same car model, both just "Toyota Touch 2 with Go") must not be
+        // confused for one another — especially now that a resolved match
+        // can immediately end an in-progress trip (see the vehicle-switch
+        // check in auditActiveTrip). An ambiguous name match falls through
+        // to nil rather than arbitrarily picking the first array entry.
+        let nameMatches = store.vehicles.filter { !$0.bluetoothName.isEmpty && $0.bluetoothName == device.name }
+        if nameMatches.count == 1 {
+            return nameMatches[0]
         }
         return nil
     }
@@ -844,14 +884,24 @@ final class TripDetector: NSObject, ObservableObject {
             // pass: it applies the 3-strike debounce AND the keep-alive-while-
             // moving rule, so the trip only ends when truly disconnected and
             // stationary — UNLESS the audit's vehicle-switch check fires,
-            // which reacts immediately regardless of movement. We react to
-            // both .oldDeviceUnavailable (car BT dropped) and
+            // which reacts immediately regardless of movement AND regardless
+            // of the dedupe window below (it runs before that gate). We react
+            // to both .oldDeviceUnavailable (car BT dropped) and
             // .newDeviceAvailable (a different device — possibly a different
             // car — just connected) so a vehicle switch is caught within
             // seconds of the route change instead of waiting for the next
             // periodic audit tick.
+            //
+            // Deliberately NOT bypassing lastAuditAt/auditDedupeWindow here
+            // (a previous version did, unconditionally): a burst of route-
+            // change notifications — a phone call renegotiating HFP, or
+            // repeated CarPlay reconnects — fires this handler several times
+            // within the same second, and forcing every single one through
+            // the BT-miss debounce below would let the "3 consecutive misses"
+            // counter (meant to represent ~3 minutes of real disconnection)
+            // reach 3 within seconds instead. The vehicle-switch check above
+            // is unaffected by this and still runs on every call.
             if (reason == .oldDeviceUnavailable || reason == .newDeviceAvailable), self.activeTrip != nil {
-                self.lastAuditAt = .distantPast   // bypass dedupe for this check
                 self.auditActiveTrip()
             }
         }
