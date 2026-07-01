@@ -1,0 +1,340 @@
+import SwiftUI
+
+struct VehiclesView: View {
+    @EnvironmentObject var store: Store
+    @State private var editingVehicle: Vehicle?
+    @State private var showingAdd = false
+
+    /// Confirmation alert state for "Delete permanently" on an archived vehicle.
+    @State private var permanentDeleteCandidate: Vehicle?
+
+    var body: some View {
+        NavigationStack {
+            List {
+                if !store.activeVehicles.isEmpty {
+                    Section {
+                        ForEach(store.activeVehicles) { vehicle in
+                            vehicleRow(vehicle)
+                        }
+                        .onDelete { offsets in
+                            // Translate offsets in the filtered active list back to the full list.
+                            let ids = offsets.map { store.activeVehicles[$0].id }
+                            for id in ids {
+                                if let v = store.vehicle(id) { _ = store.deleteVehicle(v) }
+                            }
+                        }
+                    }
+                }
+
+                if !store.archivedVehicles.isEmpty {
+                    Section {
+                        ForEach(store.archivedVehicles) { vehicle in
+                            archivedRow(vehicle)
+                        }
+                    } header: {
+                        SectionHeaderLabel(title: "Archived",
+                                           systemImage: "archivebox")
+                    } footer: {
+                        Text("Archived vehicles stay attached to their historical trips and reports but don't appear in pickers. Restore or delete permanently if no trips reference them.")
+                            .font(.caption)
+                    }
+                }
+            }
+            .navigationTitle("Vehicles")
+            .toolbar {
+                ToolbarItem(placement: .primaryAction) {
+                    Button { showingAdd = true } label: {
+                        Image(systemName: "plus")
+                    }
+                }
+            }
+            .sheet(item: $editingVehicle) { vehicle in
+                VehicleEditView(vehicle: vehicle, isNew: false)
+            }
+            .sheet(isPresented: $showingAdd) {
+                VehicleEditView(
+                    vehicle: Vehicle(name: "", licensePlate: "", type: .own),
+                    isNew: true
+                )
+            }
+            .alert("Delete permanently?",
+                   isPresented: Binding(
+                    get: { permanentDeleteCandidate != nil },
+                    set: { if !$0 { permanentDeleteCandidate = nil } }
+                   ),
+                   presenting: permanentDeleteCandidate
+            ) { vehicle in
+                Button("Delete", role: .destructive) {
+                    _ = store.deleteVehicle(vehicle)
+                }
+                Button("Cancel", role: .cancel) { }
+            } message: { vehicle in
+                Text("\"\(vehicle.name)\" will be removed from your device and Supabase. Only do this if no trips reference this vehicle.")
+            }
+        }
+    }
+
+    // MARK: - Active vehicle row
+
+    @ViewBuilder
+    private func vehicleRow(_ vehicle: Vehicle) -> some View {
+        Button {
+            editingVehicle = vehicle
+        } label: {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 8) {
+                    Image(systemName: vehicle.type == .company ? "car.2.fill" : "car.fill")
+                        .foregroundColor(.accentColor)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(vehicle.name).font(.headline)
+                        Text(subtitle(for: vehicle))
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                    Spacer()
+                    Text(lastUsedLabel(vehicle))
+                        .font(.caption2.monospacedDigit())
+                        .foregroundColor(.secondary)
+                }
+
+                if store.shouldSuggestArchive(vehicle) {
+                    archiveSuggestion(for: vehicle)
+                }
+            }
+        }
+        .tint(.primary)
+    }
+
+    @ViewBuilder
+    private func archiveSuggestion(for vehicle: Vehicle) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: "exclamationmark.bubble")
+                .foregroundColor(.orange)
+                .font(.footnote)
+            Text("Not used in 3+ months. Archive to hide from pickers?")
+                .font(.footnote)
+                .foregroundColor(.secondary)
+            Spacer()
+            Button("Archive") {
+                _ = store.deleteVehicle(vehicle)
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .tint(.orange)
+        }
+        .padding(8)
+        .background(Color.orange.opacity(0.1))
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+    }
+
+    // MARK: - Archived vehicle row
+
+    @ViewBuilder
+    private func archivedRow(_ vehicle: Vehicle) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: "archivebox.fill")
+                .foregroundColor(.secondary)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(vehicle.name)
+                    .strikethrough()
+                    .foregroundColor(.secondary)
+                Text(subtitle(for: vehicle))
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+            Spacer()
+        }
+        .swipeActions(edge: .trailing) {
+            Button(role: .destructive) {
+                permanentDeleteCandidate = vehicle
+            } label: {
+                Label("Delete", systemImage: "trash")
+            }
+            Button {
+                store.restoreVehicle(vehicle)
+            } label: {
+                Label("Restore", systemImage: "arrow.uturn.backward")
+            }
+            .tint(.blue)
+        }
+    }
+
+    // MARK: - Helpers
+
+    private func subtitle(for vehicle: Vehicle) -> String {
+        let base = vehicle.licensePlate.isEmpty
+            ? vehicle.type.label
+            : "\(vehicle.type.label) · \(vehicle.licensePlate)"
+        return base
+    }
+
+    private func lastUsedLabel(_ vehicle: Vehicle) -> String {
+        guard let last = store.lastUsed(vehicle.id) else {
+            return "Never used"
+        }
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .abbreviated
+        return formatter.localizedString(for: last, relativeTo: Date())
+    }
+}
+
+// MARK: - VehicleEditView ---------------------------------------------------
+
+struct VehicleEditView: View {
+    @EnvironmentObject var store: Store
+    @Environment(\.dismiss) private var dismiss
+
+    @State var vehicle: Vehicle
+    let isNew: Bool
+
+    @State private var pairingMessage: String?
+    @State private var showingDeleteConfirm = false
+    @State private var deletionMessage: String?
+
+    private var saveButtonEnabled: Bool {
+        !vehicle.name.trimmingCharacters(in: .whitespaces).isEmpty
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Basics") {
+                    TextField("Name (e.g. Škoda Octavia)", text: $vehicle.name)
+                    TextField("License plate", text: $vehicle.licensePlate)
+                    Picker("Type", selection: $vehicle.type) {
+                        ForEach(VehicleType.allCases) { type in
+                            Text(type.label).tag(type)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                }
+
+                Section("Default trip type") {
+                    Picker("Default", selection: $vehicle.defaultTripType) {
+                        ForEach(TripType.allCases) { type in
+                            Text(type.label).tag(type)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    Text("Used as the default classification when this vehicle's trip is auto-detected.")
+                        .font(.footnote)
+                        .foregroundColor(.secondary)
+                }
+
+                Section("Car Bluetooth") {
+                    if vehicle.bluetoothName.isEmpty {
+                        Text("Not paired yet")
+                            .foregroundColor(.secondary)
+                    } else {
+                        LabeledContent("Device", value: vehicle.bluetoothName)
+                        if !vehicle.bluetoothUID.isEmpty {
+                            LabeledContent("ID") {
+                                Text(vehicle.bluetoothUID)
+                                    .font(.caption2.monospaced())
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
+                            }
+                        }
+                    }
+
+                    Button {
+                        pairWithCurrentBluetooth()
+                    } label: {
+                        Label("Pair with current Bluetooth connection", systemImage: "antenna.radiowaves.left.and.right")
+                    }
+
+                    if !vehicle.bluetoothName.isEmpty {
+                        Button("Clear pairing", role: .destructive) {
+                            vehicle.bluetoothName = ""
+                            vehicle.bluetoothUID = ""
+                            pairingMessage = nil
+                        }
+                    }
+
+                    if let pairingMessage {
+                        Text(pairingMessage)
+                            .font(.footnote)
+                            .foregroundColor(pairingMessage.hasPrefix("Paired") ? .green : .orange)
+                    }
+
+                    Text("Sit in the car with the engine on and your phone connected to the car audio. Then tap the button above.")
+                        .font(.footnote)
+                        .foregroundColor(.secondary)
+                }
+
+                if !isNew {
+                    Section {
+                        Button(role: .destructive) {
+                            showingDeleteConfirm = true
+                        } label: {
+                            Label("Delete vehicle", systemImage: "trash")
+                                .frame(maxWidth: .infinity)
+                        }
+                    } footer: {
+                        Text("If this vehicle has trips, it will be archived (hidden from pickers but kept in your records). Otherwise it is removed permanently.")
+                            .font(.caption)
+                    }
+                }
+            }
+            .navigationTitle(isNew ? "Add vehicle" : "Edit vehicle")
+            .navigationBarTitleDisplayMode(.inline)
+            .keyboardDoneToolbar()
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button {
+                        if isNew {
+                            store.addVehicle(vehicle)
+                        } else {
+                            store.updateVehicle(vehicle)
+                        }
+                        dismiss()
+                    } label: {
+                        Text("Save")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 6)
+                            .background(saveButtonEnabled ? AnyShapeStyle(Theme.brandGradient)
+                                                          : AnyShapeStyle(Color.gray.opacity(0.3)))
+                            .clipShape(Capsule())
+                    }
+                    .disabled(!saveButtonEnabled)
+                }
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+            }
+            .confirmationDialog(
+                "Delete \"\(vehicle.name)\"?",
+                isPresented: $showingDeleteConfirm,
+                titleVisibility: .visible
+            ) {
+                Button("Delete", role: .destructive) {
+                    let mode = store.deleteVehicle(vehicle)
+                    deletionMessage = mode == .soft
+                        ? "Vehicle archived (kept for trip history)."
+                        : "Vehicle deleted."
+                    // Pop after a brief pause so the user sees what happened.
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { dismiss() }
+                }
+                Button("Cancel", role: .cancel) { }
+            } message: {
+                if store.trips.contains(where: { $0.vehicleID == vehicle.id }) {
+                    Text("This vehicle has trips attached. It will be archived so those records stay intact — you can restore it later from the Vehicles list.")
+                } else {
+                    Text("This vehicle has no trips and will be removed permanently.")
+                }
+            }
+        }
+    }
+
+    private func pairWithCurrentBluetooth() {
+        if let device = AudioRoute.currentBluetoothOutput() {
+            vehicle.bluetoothName = device.name
+            vehicle.bluetoothUID = device.uid
+            pairingMessage = "Paired with \(device.name)"
+        } else {
+            pairingMessage = "No Bluetooth audio device detected. Make sure your iPhone is currently connected to the car's audio."
+        }
+    }
+}

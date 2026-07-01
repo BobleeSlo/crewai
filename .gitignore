@@ -27,3 +27,9 @@ plan.md
 conceptual_plan.md
 build_image
 chromadb-*.lock
+
+# MileLog Xcode project — user-specific state
+MileLog/**/xcuserdata/
+MileLog/**/*.xcuserstate
+MileLog/**/DerivedData/
+MileLog/**/.DS_Store
