@@ -199,13 +199,24 @@ final class TripDetector: NSObject, ObservableObject {
             return
         }
         let stationaryMin = Date().timeIntervalSince(trip.lastMovementAt) / 60
+        // Mirrors the real end-decision in auditActiveTrip() — previously this
+        // hardcoded "(auto-stop should have fired)" whenever BT was
+        // disconnected, without checking the recentlyMoving condition the
+        // actual policy depends on, which misdiagnosed most force-stops (the
+        // trip was correctly being kept alive by GPS movement per the
+        // documented state-based policy, not stuck due to a bug).
+        let recentlyMoving = stationaryMin < Double(store.settings.stationaryTimeoutMinutes)
         let currentBT = AudioRoute.currentBluetoothOutput()
         let btStatus: String
         if let pairedUID = trip.audioDeviceUID {
             if currentBT?.uid == pairedUID {
                 btStatus = "BT still connected (\(currentBT?.name ?? "?"))"
+            } else if let cur = currentBT, let switched = matchVehicle(for: cur), switched.id != trip.vehicleID {
+                btStatus = "BT now connected to a different known vehicle (\(switched.name)) — auto-detect should have switched trips on its own"
             } else if let cur = currentBT {
                 btStatus = "BT changed to \(cur.name)"
+            } else if recentlyMoving {
+                btStatus = "BT disconnected, but GPS still shows movement \(Int(stationaryMin)) min ago — trip intentionally kept open until stationary"
             } else {
                 btStatus = "BT disconnected (auto-stop should have fired)"
             }
@@ -450,13 +461,16 @@ final class TripDetector: NSObject, ObservableObject {
         auditTimer = nil
     }
 
-    /// Runs every `auditIntervalSeconds` (and on each wake). State-based
-    /// trip-end policy: keep the trip alive while the car is in use — i.e.
-    /// while the paired Bluetooth is connected OR the car is still moving —
-    /// and end ONLY when the car is both disconnected AND stationary. This
-    /// stops real drives from being cut short by traffic lights, quiet
-    /// CarPlay stretches, or GPS-stale suspension gaps (the failure mode
-    /// seen in the field logs).
+    /// Runs every `auditIntervalSeconds` (and on each wake, and on every
+    /// location update — see `updateActiveTrip`). State-based trip-end
+    /// policy: keep the trip alive while the car is in use — i.e. while the
+    /// paired Bluetooth is connected OR the car is still moving — and end
+    /// ONLY when the car is both disconnected AND stationary. This stops
+    /// real drives from being cut short by traffic lights, quiet CarPlay
+    /// stretches, or GPS-stale suspension gaps (the failure mode seen in the
+    /// field logs). The one exception to "moving keeps it alive" is a
+    /// detected vehicle switch (below), which ends the trip immediately
+    /// regardless of movement.
     private func auditActiveTrip() {
         guard let trip = activeTrip else {
             stopAuditTimer()
@@ -467,6 +481,29 @@ final class TripDetector: NSObject, ObservableObject {
         // audit just after the 60s timer fires.
         if Date().timeIntervalSince(lastAuditAt) < auditDedupeWindow { return }
         lastAuditAt = Date()
+
+        // --- Vehicle switch detection ---------------------------------------
+        // A DIFFERENT registered vehicle's Bluetooth is now connected. This is
+        // unambiguous, high-confidence evidence the driver switched cars — e.g.
+        // parked car A and got into car B, both paired vehicles. Unlike a plain
+        // "BT missing" reading (noisy, intentionally debounced 3x) a positive
+        // match to a specific *other* known vehicle isn't something that
+        // benefits from waiting for stationary + debounce: acting immediately,
+        // regardless of whether GPS still shows movement, is what closes the
+        // "switched car but kept tracking the old one in false mode" failure
+        // reported in the field — previously the trip-alive rule below ("keep
+        // alive while moving") meant a swap mid-drive was never detected at
+        // all, silently attributing the new car's whole trip to the old one.
+        let currentDevice = AudioRoute.currentBluetoothOutput()
+        if let newVehicle = matchVehicle(for: currentDevice), newVehicle.id != trip.vehicleID {
+            let oldName = store.vehicle(trip.vehicleID)?.name ?? "previous vehicle"
+            log.log("AUDIT: vehicle switch detected — now connected to \(newVehicle.name) (was \(oldName)). Ending trip and starting a new one.",
+                    level: .warning)
+            let lastKnownLocation = CLLocation(latitude: trip.lastLat, longitude: trip.lastLng)
+            endTrip(reason: "vehicle switched to \(newVehicle.name)")
+            commitTripStart(at: lastKnownLocation, startedAt: Date(), vehicle: newVehicle, device: currentDevice)
+            return
+        }
 
         let stationaryMin = Date().timeIntervalSince(trip.lastMovementAt) / 60
         let timeout = Double(store.settings.stationaryTimeoutMinutes)
@@ -660,14 +697,20 @@ final class TripDetector: NSObject, ObservableObject {
         }
         activeTrip = trip
         persistActiveTrip()
-        checkStationary()
-    }
 
-    private func checkStationary() {
-        guard let trip = activeTrip else { return }
-        let minutes = Date().timeIntervalSince(trip.lastMovementAt) / 60.0
-        if minutes >= Double(store.settings.stationaryTimeoutMinutes) {
-            endTrip(reason: "stationary for \(Int(minutes)) min")
+        // A repeating Timer is unreliable once iOS suspends the app in the
+        // background — it simply doesn't fire while the process is
+        // suspended, which let the audit (BT-miss debounce, hard cap,
+        // vehicle-switch check) go many minutes between ticks in the field
+        // logs instead of the intended ~60s. GPS delivery is the one
+        // heartbeat we can actually count on while driving (that's the
+        // whole point of allowsBackgroundLocationUpdates), so also run the
+        // audit here, gated to the normal interval so behaviour (e.g. the
+        // 3-strike BT-miss debounce timing) matches what the comments above
+        // describe instead of drifting with however often the Timer
+        // happens to catch up.
+        if Date().timeIntervalSince(lastAuditAt) >= auditIntervalSeconds {
+            auditActiveTrip()
         }
     }
 
@@ -800,8 +843,14 @@ final class TripDetector: NSObject, ObservableObject {
             // ending immediately cut real drives short. Instead, run an audit
             // pass: it applies the 3-strike debounce AND the keep-alive-while-
             // moving rule, so the trip only ends when truly disconnected and
-            // stationary.
-            if reason == .oldDeviceUnavailable, self.activeTrip != nil {
+            // stationary — UNLESS the audit's vehicle-switch check fires,
+            // which reacts immediately regardless of movement. We react to
+            // both .oldDeviceUnavailable (car BT dropped) and
+            // .newDeviceAvailable (a different device — possibly a different
+            // car — just connected) so a vehicle switch is caught within
+            // seconds of the route change instead of waiting for the next
+            // periodic audit tick.
+            if (reason == .oldDeviceUnavailable || reason == .newDeviceAvailable), self.activeTrip != nil {
                 self.lastAuditAt = .distantPast   // bypass dedupe for this check
                 self.auditActiveTrip()
             }
