@@ -18,8 +18,7 @@ struct ActiveTripState: Codable {
     var lastLng: Double
     var distanceKm: Double
     var lastMovementAt: Date
-    /// Most recent GPS speed in km/h — logged for diagnostics and used as a
-    /// "still moving" keep-alive signal.
+    /// Most recent GPS speed in km/h — logged for diagnostics only.
     var lastSpeedKmh: Double = 0
     var points: [RecordedPoint] = []
 }
@@ -32,14 +31,25 @@ struct RecordedPoint: Codable {
     var accuracyM: Float
 }
 
-/// Auto-detect engine: wakes on significant location changes, identifies the
-/// car via Bluetooth audio, tracks the drive with active GPS, ends the trip on
-/// BT disconnect or 5+ minutes of standing still, then saves + notifies.
+/// Auto-detect engine: wakes on significant location changes, verifies real
+/// driving via speed/motion (regardless of Bluetooth), tracks the drive with
+/// active GPS, ends the trip purely on elapsed time since genuine movement,
+/// then saves + notifies.
+///
+/// Bluetooth's ONLY job in this design is vehicle IDENTIFICATION — which car
+/// (private vs. business) a trip should be attributed to. It never decides
+/// whether a trip is still happening. An earlier design kept a trip alive
+/// indefinitely as long as the paired car's Bluetooth read as "connected";
+/// field data showed car head units routinely stay Bluetooth-connected for
+/// HOURS after the engine is off and the driver has left, which turned one
+/// day's driving into a single 131 km, ~19-hour "trip" that never ended on
+/// its own. Trip lifetime is now governed solely by movement.
 ///
 /// Lifecycle is driven by:
 ///   1. CLLocationManager significant-location changes  (app wake)
-///   2. Active GPS updates while a trip is running       (distance + stationary)
-///   3. AVAudioSession route-change notifications        (BT disconnect)
+///   2. Speed/CoreMotion verification                    (real drive vs. walk/run)
+///   3. Active GPS updates while a trip is running        (distance + movement time)
+///   4. AVAudioSession route-change notifications         (vehicle identification only)
 @MainActor
 final class TripDetector: NSObject, ObservableObject {
 
@@ -85,13 +95,6 @@ final class TripDetector: NSObject, ObservableObject {
     /// Require this much GPS movement during the window before trusting it.
     private let automotiveMovementMetres: Double = 100
 
-    // 3-strike BT-disconnect debounce: AVAudioSession occasionally flips
-    // the route during the same drive (interrupting call, brief auto-
-    // disconnect). Wait for N consecutive audits with the paired device
-    // missing before ending the trip.
-    private var consecutiveBTMisses = 0
-    private let btMissesToConfirm = 3
-
     // Duplicate-audit suppression — the audit can occasionally fire twice
     // in rapid succession when an audio route change handler triggers a
     // re-check alongside the timer. Anything within this window is dropped.
@@ -103,27 +106,24 @@ final class TripDetector: NSObject, ObservableObject {
     private var lastLocationAt: Date = .distantPast
     private var lastAccuracy: Double = -1
 
-    // Trip-end policy (state-based, not pure time-based). A trip is kept
-    // alive while EITHER the paired car is still connected OR the car is
-    // still moving — so traffic-light stops, quiet CarPlay stretches, and
-    // GPS-stale suspension gaps don't prematurely end a real drive. The
-    // trip ends only when the car is BOTH disconnected AND stationary.
-    //   - movingSpeedKmh: at/above this the car counts as "moving".
-    //   - The stationary timeout (UserSettings.stationaryTimeoutMinutes)
-    //     only ends a trip that has NO BT pairing (manual-ish case).
-    //   - stationaryHardCapMinutes: absolute backstop — even with BT
-    //     reported present, end after this long with zero movement, so a
-    //     stuck/false "connected" reading can't run a trip forever.
+    // Trip-end policy: PURE movement-based, no Bluetooth involvement at all.
+    // A trip ends when `stationaryTimeoutMinutes` (Settings, default 5) have
+    // elapsed since the last genuine movement — full stop, no override. This
+    // naturally tolerates brief real-world stops (a red light is rarely more
+    // than a minute or two) without needing any "keep alive" exception, and
+    // it can no longer be extended indefinitely by a lingering Bluetooth
+    // connection the way the previous design could.
+    //   - movingSpeedKmh: at/above this the car counts as "moving" and
+    //     `lastMovementAt` is refreshed.
     private let movingSpeedKmh: Double = 3
-    private let stationaryHardCapMinutes: Double = 30
 
     // Vehicle-switch debounce: require the newly-detected vehicle's BT to be
-    // observed consistently for this long before actually switching, so a
+    // observed consistently for this long before actually switching (i.e.
+    // reassigning which vehicle the in-progress trip belongs to), so a
     // one-off BLE proximity flicker (e.g. briefly picking up a nearby parked
-    // car's signal) can't fragment a real drive into extra rows. BT-loss
-    // uses a 3-strike counter spaced ~60s apart (audit cadence); BT-gain is
-    // checked far more often (every GPS update + every route-change event),
-    // so a short wall-clock window is used instead of a tick counter.
+    // car's signal) can't misattribute a real drive. Checked on every GPS
+    // update and every route-change event, so a short wall-clock window is
+    // used rather than a tick counter.
     private var pendingSwitchVehicleID: UUID?
     private var pendingSwitchFirstSeenAt: Date?
     private let switchConfirmSeconds: TimeInterval = 8
@@ -210,9 +210,10 @@ final class TripDetector: NSObject, ObservableObject {
         if activeTrip != nil { endTrip(reason: "disabled by user") }
     }
 
-    /// User-initiated stop from the Record-tab banner. Records exactly why
-    /// the auto trigger didn't fire (stationary time + BT presence) so the
-    /// Detection log captures the post-mortem.
+    /// User-initiated stop from the Record-tab banner. Records the elapsed
+    /// stationary time (the sole reason auto-stop should or shouldn't have
+    /// fired) plus BT status for identification context, so the Detection
+    /// log captures the post-mortem.
     func forceEndTrip() {
         guard let trip = activeTrip else {
             log.log("Force-stop tapped but no active trip.", level: .warning)
@@ -227,10 +228,10 @@ final class TripDetector: NSObject, ObservableObject {
             } else if let cur = currentBT {
                 btStatus = "BT changed to \(cur.name)"
             } else {
-                btStatus = "BT disconnected (auto-stop should have fired)"
+                btStatus = "BT disconnected"
             }
         } else {
-            btStatus = "no BT pairing at start"
+            btStatus = "no BT pairing"
         }
         log.log(String(format: "FORCE-STOP: %.1f km, %d min since last movement, %@",
                        trip.distanceKm, Int(stationaryMin), btStatus),
@@ -441,7 +442,6 @@ final class TripDetector: NSObject, ObservableObject {
         )
         activeTrip = state
         persistActiveTrip(force: true)
-        consecutiveBTMisses = 0
         pendingSwitchVehicleID = nil
         pendingSwitchFirstSeenAt = nil
 
@@ -475,13 +475,15 @@ final class TripDetector: NSObject, ObservableObject {
         auditTimer = nil
     }
 
-    /// Runs every `auditIntervalSeconds` (and on each wake). State-based
-    /// trip-end policy: keep the trip alive while the car is in use — i.e.
-    /// while the paired Bluetooth is connected OR the car is still moving —
-    /// and end ONLY when the car is both disconnected AND stationary. This
-    /// stops real drives from being cut short by traffic lights, quiet
-    /// CarPlay stretches, or GPS-stale suspension gaps (the failure mode
-    /// seen in the field logs).
+    /// Runs every `auditIntervalSeconds` (and on each wake, and immediately
+    /// after restoring a trip on relaunch). Trip-end decision is PURE
+    /// elapsed-time-since-movement — no Bluetooth involvement. See the class
+    /// doc comment for why: a prior design that kept trips alive as long as
+    /// Bluetooth read "connected" let a single day's driving run as one
+    /// 131 km, ~19-hour trip that never ended on its own, because car head
+    /// units routinely stay Bluetooth-connected long after the engine is
+    /// off. Bluetooth is checked here ONLY for vehicle identification via
+    /// checkVehicleSwitch(), never as a reason to keep the trip open.
     private func auditActiveTrip() {
         guard let trip = activeTrip else {
             stopAuditTimer()
@@ -493,71 +495,21 @@ final class TripDetector: NSObject, ObservableObject {
         if Date().timeIntervalSince(lastAuditAt) < auditDedupeWindow { return }
         lastAuditAt = Date()
 
-        // Vehicle-switch check runs FIRST, before any of this trip's own
-        // BT/stationary bookkeeping — if the car changed, none of that
-        // bookkeeping is relevant anymore.
+        // Vehicle-switch / identification check runs first — purely about
+        // WHICH vehicle this trip belongs to, never about whether it's over.
         if checkVehicleSwitch() { return }
 
         let stationaryMin = Date().timeIntervalSince(trip.lastMovementAt) / 60
         let timeout = Double(store.settings.stationaryTimeoutMinutes)
-        let hasPairing = trip.audioDeviceUID != nil || (trip.audioDeviceName?.isEmpty == false)
 
-        // --- Bluetooth presence (3-strike debounce on "gone") -------------
-        // Uses isPairedDevicePresent (checks outputs + available inputs) so a
-        // CarPlay/BT car that's connected but not the active output during a
-        // quiet stretch still counts as present.
-        var btPresent = false
-        if hasPairing {
-            btPresent = AudioRoute.isPairedDevicePresent(uid: trip.audioDeviceUID,
-                                                         name: trip.audioDeviceName)
-            if btPresent {
-                if consecutiveBTMisses > 0 {
-                    log.log("AUDIT: paired BT device back — resetting miss counter.")
-                }
-                consecutiveBTMisses = 0
-            } else {
-                consecutiveBTMisses += 1
-                // Only log while still counting toward confirmation — once
-                // confirmed gone the trip may legitimately stay open via the
-                // "moving" keep-alive for a long time (e.g. BT dropped mid-
-                // drive due to a phone call), and re-logging this warning
-                // every 60s for the rest of the drive would be pure noise.
-                // The heartbeat line below still reports "missing(n)" once.
-                if consecutiveBTMisses <= btMissesToConfirm {
-                    log.log("AUDIT: paired BT device missing (\(consecutiveBTMisses)/\(btMissesToConfirm)).",
-                            level: .warning)
-                }
-            }
-        }
-        // "Confirmed disconnected" = paired but missing for N consecutive audits.
-        let btConfirmedGone = hasPairing && consecutiveBTMisses >= btMissesToConfirm
-        // No pairing at all → treat as "not connected" for the end decision.
-        let connected = hasPairing && !btConfirmedGone
-
-        // --- Movement ------------------------------------------------------
-        let recentlyMoving = stationaryMin < timeout
-
-        // --- End decision --------------------------------------------------
-        // 1. Normal end: car disconnected AND stationary past the timeout.
-        if !connected && !recentlyMoving {
-            let why = hasPairing
-                ? "BT disconnected + stationary \(Int(stationaryMin)) min"
-                : "no BT pairing + stationary \(Int(stationaryMin)) min"
-            log.log("AUDIT: ending trip — \(why).", level: .info)
-            endTrip(reason: why)
-            return
-        }
-        // 2. Hard safety cap: even if BT still reads "present", end after a
-        //    very long fully-stationary stretch so a stuck/false-connected
-        //    reading can't keep a trip running indefinitely.
-        if stationaryMin >= stationaryHardCapMinutes {
-            log.log(String(format: "AUDIT: hard cap — stationary %.0f min (>= %.0f) — ending trip.",
-                           stationaryMin, stationaryHardCapMinutes), level: .info)
-            endTrip(reason: "stationary hard cap \(Int(stationaryMin)) min")
+        if stationaryMin >= timeout {
+            log.log(String(format: "AUDIT: ending trip — stationary %.0f min >= %.0f min timeout.",
+                           stationaryMin, timeout), level: .info)
+            endTrip(reason: "stationary \(Int(stationaryMin)) min")
             return
         }
 
-        // --- Heartbeat (with velocity + GPS health for diagnostics) -------
+        // --- Heartbeat (velocity + GPS health + BT for diagnostics only) --
         let secsSinceGPS = Int(Date().timeIntervalSince(lastLocationAt))
         let gpsHealth: String
         if lastLocationAt == .distantPast {
@@ -565,14 +517,17 @@ final class TripDetector: NSObject, ObservableObject {
         } else {
             gpsHealth = String(format: "GPS %ds ago · acc %.0f m", secsSinceGPS, max(0, lastAccuracy))
         }
-        let btState = hasPairing ? (btPresent ? "connected" : "missing(\(consecutiveBTMisses))") : "none"
-        log.log(String(format: "AUDIT heartbeat: %.1f km · v %.0f km/h · %.0f min since movement · BT %@ · %@ · keep-alive(%@)",
+        let hasPairing = trip.audioDeviceUID != nil || (trip.audioDeviceName?.isEmpty == false)
+        let btLabel = hasPairing
+            ? (AudioRoute.isPairedDevicePresent(uid: trip.audioDeviceUID, name: trip.audioDeviceName) ? "connected" : "not connected")
+            : "none"
+        log.log(String(format: "AUDIT heartbeat: %.1f km · v %.0f km/h · %.0f min since movement (ends at %.0f) · BT %@ · %@",
                        trip.distanceKm,
                        trip.lastSpeedKmh,
                        stationaryMin,
-                       btState,
-                       gpsHealth,
-                       connected ? "BT" : (recentlyMoving ? "moving" : "—")))
+                       timeout,
+                       btLabel,
+                       gpsHealth))
     }
 
     /// Resume the previous trip instead of starting a fresh one when the
@@ -652,7 +607,6 @@ final class TripDetector: NSObject, ObservableObject {
         )
         activeTrip = resumed
         persistActiveTrip(force: true)
-        consecutiveBTMisses = 0
         pendingSwitchVehicleID = nil
         pendingSwitchFirstSeenAt = nil
 
@@ -710,33 +664,32 @@ final class TripDetector: NSObject, ObservableObject {
         return nil
     }
 
-    /// Detects when the phone has connected to a DIFFERENT known vehicle's
-    /// Bluetooth while a trip for the CURRENT vehicle is still active — e.g.
+    /// Bluetooth's identification duty for an already-active trip: detects
+    /// either (a) a DIFFERENT known vehicle's Bluetooth connecting — e.g.
     /// the user parked car A, walked into car B, and car B's paired BT
-    /// connected. Without this check, the Phase 12 "keep trip alive while
-    /// moving" rule silently attributes car B's entire drive to car A,
-    /// because motion alone was treated as sufficient justification to keep
-    /// ANY trip open, regardless of which car is actually being driven.
+    /// connected — or (b) the trip's OWN already-assigned vehicle's
+    /// Bluetooth becoming available after the trip started without it (the
+    /// common case for a trip that began via pure speed/motion verification
+    /// before Bluetooth finished pairing). This function only ever changes
+    /// or confirms WHICH vehicle the trip belongs to — it never ends a trip
+    /// for any reason other than a genuine switch, and never keeps one open.
     ///
-    /// Requires the new vehicle's BT to be seen consistently for
-    /// `switchConfirmSeconds` before acting (see debounce comment above) —
-    /// adversarial review found that a single-read trigger here, while the
-    /// symmetric BT-loss check uses a 3-strike debounce, made this check
-    /// more trigger-happy than the disconnect logic it was meant to
-    /// complement, risking exactly the kind of trip fragmentation /
-    /// silent distance loss this whole feature exists to prevent.
+    /// Switch detection requires the new vehicle's BT to be seen
+    /// consistently for `switchConfirmSeconds` before acting (see debounce
+    /// comment above) — adversarial review found that a single-read trigger
+    /// here could fragment a real drive on a one-off BLE proximity flicker.
     ///
-    /// Ends the current trip immediately (using its last known point as the
-    /// transition point) and starts a fresh one for the newly-detected
-    /// vehicle, WITHOUT allowing that new trip to merge into an older saved
-    /// trip (a detected switch is by definition a discontinuous event —
-    /// resurrecting an unrelated earlier trip would misattribute distance
-    /// and back-date its start time). Returns true if it acted, so callers
-    /// can bail out of whatever they were doing with the now-stale trip
-    /// reference.
+    /// On a confirmed switch: ends the current trip immediately (using its
+    /// last known point as the transition point) and starts a fresh one for
+    /// the newly-detected vehicle, WITHOUT allowing that new trip to merge
+    /// into an older saved trip (a detected switch is by definition a
+    /// discontinuous event — resurrecting an unrelated earlier trip would
+    /// misattribute distance and back-date its start time). Returns true if
+    /// it acted, so callers can bail out of whatever they were doing with
+    /// the now-stale trip reference.
     @discardableResult
     private func checkVehicleSwitch() -> Bool {
-        guard let trip = activeTrip else { return false }
+        guard var trip = activeTrip else { return false }
         guard let currentDevice = AudioRoute.currentBluetoothOutput() else {
             pendingSwitchVehicleID = nil
             pendingSwitchFirstSeenAt = nil
@@ -752,7 +705,25 @@ final class TripDetector: NSObject, ObservableObject {
             return false
         }
 
-        guard let newVehicle = matchVehicle(for: currentDevice), newVehicle.id != trip.vehicleID else {
+        guard let newVehicle = matchVehicle(for: currentDevice) else {
+            pendingSwitchVehicleID = nil
+            pendingSwitchFirstSeenAt = nil
+            return false
+        }
+
+        if newVehicle.id == trip.vehicleID {
+            // Not a switch — Bluetooth is confirming the vehicle we already
+            // assigned (typically a trip that started via motion-only
+            // verification before BT finished pairing). Adopt the pairing
+            // onto the trip immediately, no debounce needed since we're not
+            // changing anything about the trip's classification or lifetime.
+            if trip.audioDeviceUID != currentDevice.uid || trip.audioDeviceName != currentDevice.name {
+                trip.audioDeviceUID = currentDevice.uid
+                trip.audioDeviceName = currentDevice.name
+                activeTrip = trip
+                persistActiveTrip(force: true)
+                log.log("Vehicle confirmed via Bluetooth: \(newVehicle.name) ('\(currentDevice.name)').", level: .info)
+            }
             pendingSwitchVehicleID = nil
             pendingSwitchFirstSeenAt = nil
             return false
@@ -826,22 +797,13 @@ final class TripDetector: NSObject, ObservableObject {
         }
         activeTrip = trip
         persistActiveTrip()
-        // NOTE: stationary-based trip ending is intentionally NOT done here.
-        // A naive per-update time check ("minutes since movement >= timeout
-        // → end trip") used to live in this spot, but it ignored Bluetooth
-        // connection state entirely. GPS multipath/jitter routinely produces
-        // a spurious position update even while parked with the engine
-        // idling (e.g. waiting at a light), and if one landed after the
-        // timeout had elapsed, that old code ended the trip even though the
-        // car's Bluetooth was still connected — directly contradicting the
-        // "keep the trip alive while connected or moving" policy documented
-        // on auditActiveTrip(). All stationary-based ending now goes through
-        // auditActiveTrip() exclusively, which is BT-aware. The audit timer
-        // (60s cadence) plus the fact that CLLocationManager simply doesn't
-        // call this method while genuinely stationary (no update exceeds
-        // distanceFilter) means centralizing here costs at most ~60s of
-        // extra detection latency against a multi-minute timeout — an
-        // acceptable trade for removing a source of incorrect early endings.
+        // NOTE: stationary-based trip ending is intentionally NOT done here
+        // per-update — it's centralized in auditActiveTrip() exclusively, so
+        // there's exactly one place that decides "is this trip over", using
+        // one consistent elapsed-time-since-movement rule. CLLocationManager
+        // doesn't call this method while genuinely stationary anyway (no
+        // update exceeds distanceFilter), so centralizing costs at most
+        // ~60s of extra detection latency against a multi-minute timeout.
     }
 
     // MARK: - Trip end
@@ -861,7 +823,6 @@ final class TripDetector: NSObject, ObservableObject {
             manager.stopUpdatingLocation()
             motion.stop()
             stopAuditTimer()
-            consecutiveBTMisses = 0
             activeTrip = nil
             clearPersistedActiveTrip()
             return
@@ -944,7 +905,6 @@ final class TripDetector: NSObject, ObservableObject {
         manager.stopUpdatingLocation()
         motion.stop()
         stopAuditTimer()
-        consecutiveBTMisses = 0
         activeTrip = nil
         clearPersistedActiveTrip()
     }
@@ -959,7 +919,7 @@ final class TripDetector: NSObject, ObservableObject {
         return ""
     }
 
-    // MARK: - Audio route changes (BT disconnect ends the trip)
+    // MARK: - Audio route changes (vehicle identification only — never ends a trip)
 
     @objc nonisolated private func audioRouteChanged(_ note: Notification) {
         guard let info = note.userInfo,
@@ -970,19 +930,19 @@ final class TripDetector: NSObject, ObservableObject {
             self.log.log("Audio route change: \(reason)")
             guard self.activeTrip != nil else { return }
 
-            // Immediate vehicle-switch check — a new car's Bluetooth becoming
-            // the active route is exactly what .newDeviceAvailable means, so
-            // we don't wait for the next 60s audit tick to notice the swap.
+            // Immediate vehicle-switch/identification check — a new car's
+            // Bluetooth becoming the active route is exactly what
+            // .newDeviceAvailable means, so we don't wait for the next 60s
+            // audit tick to notice it. This never ends the trip on its own;
+            // it only reassigns/confirms which vehicle it belongs to.
             if reason == .newDeviceAvailable, self.checkVehicleSwitch() {
                 return
             }
 
-            // We no longer end the trip directly here on disconnect. A route
-            // change (even .oldDeviceUnavailable) is frequently transient
-            // with CarPlay, and ending immediately cut real drives short.
-            // Instead, run a full audit pass: it applies the 3-strike
-            // debounce AND the keep-alive-while-moving rule, so the trip
-            // only ends when truly disconnected and stationary.
+            // A disconnect (.oldDeviceUnavailable) does NOT end the trip —
+            // Bluetooth plays no role in the end decision at all. Just run
+            // a normal audit pass so the movement-based stationary check
+            // gets an extra, prompt opportunity to run.
             if reason == .oldDeviceUnavailable {
                 self.lastAuditAt = .distantPast   // bypass dedupe for this check
                 self.auditActiveTrip()
@@ -1046,8 +1006,8 @@ final class TripDetector: NSObject, ObservableObject {
             }
         }
 
-        // 2. Restore in-progress trip and resume GPS + audit so the trip
-        //    end (BT disconnect or stationary) can still be detected.
+        // 2. Restore in-progress trip and resume GPS + audit so the trip's
+        //    end (stationary timeout) can still be detected.
         guard let data = try? Data(contentsOf: activeTripURL),
               let trip = try? JSONDecoder().decode(ActiveTripState.self, from: data) else { return }
         activeTrip = trip
@@ -1057,6 +1017,14 @@ final class TripDetector: NSObject, ObservableObject {
         store.settings.energyMode.apply(to: manager)
         manager.startUpdatingLocation()
         startAuditTimer()
+
+        // Evaluate immediately rather than waiting for the next timer tick.
+        // Field data showed the app can be killed and relaunched by iOS
+        // several times across a single long trip; each relaunch is a
+        // chance to promptly close out a trip that's actually been
+        // stationary the whole time the app was dead, rather than silently
+        // extending it further until the next scheduled audit.
+        auditActiveTrip()
     }
 }
 
@@ -1095,11 +1063,9 @@ extension TripDetector: CLLocationManagerDelegate {
     }
 
     /// iOS itself decided we're stationary and paused GPS — happens in Low
-    /// Power energy mode. This does NOT end the trip unconditionally: it
-    /// defers to auditActiveTrip(), which is BT-aware. A car stopped at a
-    /// long light with Bluetooth still connected must stay open even though
-    /// iOS has paused GPS — ending here regardless of BT state would
-    /// reintroduce the exact bug fixed by removing the old checkStationary().
+    /// Power energy mode. Defers to auditActiveTrip() rather than ending
+    /// unconditionally, so the same single elapsed-time-since-movement rule
+    /// decides whether the trip is actually over.
     nonisolated func locationManagerDidPauseLocationUpdates(_ manager: CLLocationManager) {
         Task { @MainActor [weak self] in
             guard let self else { return }
