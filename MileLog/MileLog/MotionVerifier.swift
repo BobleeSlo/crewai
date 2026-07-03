@@ -12,6 +12,14 @@ final class MotionVerifier {
     private(set) var isMonitoring = false
     private(set) var hasAutomotiveSignal = false
     private(set) var hasNonAutomotiveSignal = false
+    /// Timestamp of the most recent "automotive" classification, kept fresh
+    /// for as long as monitoring runs (unlike `hasAutomotiveSignal`, which
+    /// latches true once and never resets until `start()`). Used by
+    /// `TripDetector` as a GPS-independent movement signal — the phone's
+    /// accelerometer keeps working in a tunnel/underground garage where GPS
+    /// goes dark, so a recent reading here means the car is very likely
+    /// still being driven even though location updates have stopped arriving.
+    private(set) var lastAutomotiveActivityAt: Date?
 
     /// Motion APIs crash the app instantly if NSMotionUsageDescription is
     /// missing from Info.plist. We refuse to call them in that case and let
@@ -27,6 +35,7 @@ final class MotionVerifier {
         guard isAvailable, !isMonitoring else { return }
         hasAutomotiveSignal = false
         hasNonAutomotiveSignal = false
+        lastAutomotiveActivityAt = nil
         isMonitoring = true
 
         manager.startActivityUpdates(to: .main) { [weak self] activity in
@@ -35,6 +44,7 @@ final class MotionVerifier {
             guard activity.confidence != .low else { return }
             if activity.automotive {
                 self.hasAutomotiveSignal = true
+                self.lastAutomotiveActivityAt = Date()
             } else if activity.walking || activity.running || activity.cycling {
                 self.hasNonAutomotiveSignal = true
             }

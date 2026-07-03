@@ -67,10 +67,9 @@ final class TripDetector: NSObject, ObservableObject {
     weak var manualLocationManager: LocationManager?
 
     private let activeTripURL: URL
-    private var stationaryTimer: Timer?
-    /// Recurring sanity check during a trip — fires every 60s and ends the
-    /// trip if either of the normal triggers (stationary, BT disconnect)
-    /// failed to deliver. Logs each tick so the Detection log shows why.
+    /// Recurring sanity check during a trip — fires every `auditIntervalSeconds`
+    /// and re-evaluates the pure elapsed-time-since-movement end condition.
+    /// Logs each tick so the Detection log shows why a trip did or didn't end.
     private var auditTimer: Timer?
     private let auditIntervalSeconds: TimeInterval = 60
 
@@ -116,6 +115,27 @@ final class TripDetector: NSObject, ObservableObject {
     //   - movingSpeedKmh: at/above this the car counts as "moving" and
     //     `lastMovementAt` is refreshed.
     private let movingSpeedKmh: Double = 3
+
+    // GPS-blackout protection: a tunnel, underground garage, or a plain
+    // background-execution gap (iOS can suspend the app for minutes at a
+    // time even while driving — see TRACKING-KNOWLEDGE-BASE.md §4) stops
+    // location callbacks from arriving at all, which looks IDENTICAL to a
+    // genuine stop from `lastMovementAt` alone (adversarial review of Phase
+    // 14 confirmed this: CLLocationManager doesn't fire updates while
+    // genuinely stationary either, so "no updates" cannot by itself mean
+    // "the car stopped"). CoreMotion's accelerometer-based "automotive"
+    // classification doesn't need GPS or Bluetooth, so it's used as a
+    // second, independent movement signal purely to avoid ending a trip on
+    // GPS silence alone — this is still movement evidence, not Bluetooth,
+    // so it doesn't violate the "BT is identification-only" rule.
+    //   - motionSignalFreshnessSeconds: how recent CoreMotion's last
+    //     automotive reading must be to still count as "currently driving."
+    //   - gpsBlackoutOverrideCapMinutes: absolute bound — even with
+    //     CoreMotion still reporting automotive, a trip stationary-by-GPS
+    //     for longer than this ends anyway, so a stuck/misclassifying
+    //     sensor can't keep a trip open forever.
+    private let motionSignalFreshnessSeconds: TimeInterval = 120
+    private let gpsBlackoutOverrideCapMinutes: Double = 45
 
     // Vehicle-switch debounce: require the newly-detected vehicle's BT to be
     // observed consistently for this long before actually switching (i.e.
@@ -386,7 +406,11 @@ final class TripDetector: NSObject, ObservableObject {
                            nonCar ? "yes" : "no"), level: .info)
             candidate = nil
             clearPersistedCandidate()
-            motion.stop()
+            // Deliberately NOT calling motion.stop() here — CoreMotion keeps
+            // running for the trip's full duration now (see commitTripStart),
+            // so its accelerometer-based "automotive" signal stays available
+            // as a GPS-independent movement check throughout the drive, not
+            // just during this verification window.
             // Re-read BT now (it may have connected while we were verifying).
             let device = AudioRoute.currentBluetoothOutput()
             let vehicle = matchVehicle(for: device) ?? fallbackVehicle()
@@ -409,6 +433,12 @@ final class TripDetector: NSObject, ObservableObject {
     private func commitTripStart(at location: CLLocation, startedAt: Date,
                                  vehicle: Vehicle, device: BluetoothAudioDevice?,
                                  allowMerge: Bool = true) {
+        // Keep CoreMotion running for the whole trip (idempotent — a no-op
+        // if verification already started it). The BT fast-path in
+        // handleSignificantLocation skips verification entirely, so this is
+        // the only place guaranteed to run for every trip start.
+        if motion.isAvailable { motion.start() }
+
         // Trip merge: if this matches a continuation of the previous trip
         // (same vehicle, within mergeWindow minutes and mergeRadius metres
         // of the previous end coords), resume that trip instead of splitting
@@ -454,7 +484,7 @@ final class TripDetector: NSObject, ObservableObject {
         log.log("Trip started: \(vehicle.name) [\(bt)] · \(store.settings.energyMode.label)", level: .info)
     }
 
-    // MARK: - Audit (backup stationary + BT-disappeared detection)
+    // MARK: - Audit (pure elapsed-time-since-movement trip end)
 
     private func startAuditTimer() {
         auditTimer?.invalidate()
@@ -503,10 +533,23 @@ final class TripDetector: NSObject, ObservableObject {
         let timeout = Double(store.settings.stationaryTimeoutMinutes)
 
         if stationaryMin >= timeout {
-            log.log(String(format: "AUDIT: ending trip — stationary %.0f min >= %.0f min timeout.",
-                           stationaryMin, timeout), level: .info)
-            endTrip(reason: "stationary \(Int(stationaryMin)) min")
-            return
+            // GPS-blackout check: "no location updates" and "genuinely
+            // parked" are indistinguishable from GPS timing alone (see the
+            // constant's doc comment above). Before ending, ask CoreMotion
+            // — an independent, GPS-free movement signal — whether it's
+            // seen automotive activity recently. If so, this is very likely
+            // a tunnel/dead-zone while still driving, not a real stop.
+            if let lastAuto = motion.lastAutomotiveActivityAt,
+               Date().timeIntervalSince(lastAuto) < motionSignalFreshnessSeconds,
+               stationaryMin < gpsBlackoutOverrideCapMinutes {
+                log.log(String(format: "AUDIT: %.0f min stationary by GPS timing, but CoreMotion confirms automotive activity %.0fs ago — likely a GPS dead zone, not ending.",
+                               stationaryMin, Date().timeIntervalSince(lastAuto)), level: .info)
+            } else {
+                log.log(String(format: "AUDIT: ending trip — stationary %.0f min >= %.0f min timeout.",
+                               stationaryMin, timeout), level: .info)
+                endTrip(reason: "stationary \(Int(stationaryMin)) min")
+                return
+            }
         }
 
         // --- Heartbeat (velocity + GPS health + BT for diagnostics only) --
@@ -521,12 +564,19 @@ final class TripDetector: NSObject, ObservableObject {
         let btLabel = hasPairing
             ? (AudioRoute.isPairedDevicePresent(uid: trip.audioDeviceUID, name: trip.audioDeviceName) ? "connected" : "not connected")
             : "none"
-        log.log(String(format: "AUDIT heartbeat: %.1f km · v %.0f km/h · %.0f min since movement (ends at %.0f) · BT %@ · %@",
+        let motionLabel: String
+        if let lastAuto = motion.lastAutomotiveActivityAt {
+            motionLabel = String(format: "automotive %.0fs ago", Date().timeIntervalSince(lastAuto))
+        } else {
+            motionLabel = "no signal yet"
+        }
+        log.log(String(format: "AUDIT heartbeat: %.1f km · v %.0f km/h · %.0f min since movement (ends at %.0f) · BT %@ · motion %@ · %@",
                        trip.distanceKm,
                        trip.lastSpeedKmh,
                        stationaryMin,
                        timeout,
                        btLabel,
+                       motionLabel,
                        gpsHealth))
     }
 
@@ -584,14 +634,23 @@ final class TripDetector: NSObject, ObservableObject {
             Task { try? await supabase.deleteTrip(id: id) }
         }
 
+        // Restore the ORIGINAL trip's start point, not the pause location
+        // (endLat/endLng above). Getting this wrong silently corrupts
+        // TripClassifier's home/work proximity check and the reverse-
+        // geocoded start address for every merged trip — confirmed by
+        // adversarial review. Falls back to endLat/endLng only for a trip
+        // saved before startLat/startLng existed on the model.
+        let originLat = lastTrip.startLat ?? endLat
+        let originLng = lastTrip.startLng ?? endLng
+
         let resumed = ActiveTripState(
             id: lastTrip.id,                                       // keep id for any external refs
             vehicleID: vehicle.id,
             audioDeviceUID: device?.uid,
             audioDeviceName: device?.name,
             startedAt: lastTrip.startedAt,                          // keep original start time
-            startLat: endLat,
-            startLng: endLng,
+            startLat: originLat,
+            startLng: originLng,
             lastLat: location.coordinate.latitude,
             lastLng: location.coordinate.longitude,
             distanceKm: lastTrip.distanceKm,                        // carry forward accumulated km
@@ -717,11 +776,16 @@ final class TripDetector: NSObject, ObservableObject {
             // verification before BT finished pairing). Adopt the pairing
             // onto the trip immediately, no debounce needed since we're not
             // changing anything about the trip's classification or lifetime.
+            // No forced disk write either — this is diagnostic/identification
+            // metadata, not a state transition, so the routine 3s persist
+            // throttle is fine (adversarial review flagged an unthrottled
+            // write here as unnecessary given a UID that briefly flip-flops
+            // could otherwise force a write on every occurrence).
             if trip.audioDeviceUID != currentDevice.uid || trip.audioDeviceName != currentDevice.name {
                 trip.audioDeviceUID = currentDevice.uid
                 trip.audioDeviceName = currentDevice.name
                 activeTrip = trip
-                persistActiveTrip(force: true)
+                persistActiveTrip()
                 log.log("Vehicle confirmed via Bluetooth: \(newVehicle.name) ('\(currentDevice.name)').", level: .info)
             }
             pendingSwitchVehicleID = nil
@@ -863,6 +927,8 @@ final class TripDetector: NSObject, ObservableObject {
             notes: "Auto-detected",
             isLocked: false
         )
+        trip.startLat = state.startLat
+        trip.startLng = state.startLng
         trip.endLat = state.lastLat
         trip.endLng = state.lastLng
         store.addTrip(trip)

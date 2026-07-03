@@ -273,7 +273,7 @@ struct RecordTripView: View {
             HStack(spacing: 10) {
                 Image(systemName: "dot.radiowaves.left.and.right")
                     .foregroundColor(Theme.accent)
-                Text("Auto-detect is tracking. Ends on Bluetooth disconnect or after \(store.settings.stationaryTimeoutMinutes) min stationary.")
+                Text("Auto-detect is tracking. Ends after \(store.settings.stationaryTimeoutMinutes) min stationary.")
                     .font(.footnote)
                     .foregroundColor(.secondary)
                 Spacer(minLength: 0)
@@ -334,6 +334,8 @@ struct RecordTripView: View {
             notes: "",
             isLocked: false
         )
+        trip.startLat = location.startLocation?.coordinate.latitude
+        trip.startLng = location.startLocation?.coordinate.longitude
         trip.endLat = endCoord?.latitude
         trip.endLng = endCoord?.longitude
         tripToClassify = trip

@@ -130,6 +130,12 @@ struct Trip: Identifiable, Codable, Hashable {
     var endedAt: Date
     var startAddress: String
     var endAddress: String
+    /// Start coordinates — the trip's TRUE origin. Needed so a merged/resumed
+    /// trip (a brief stop stitched back into the same drive) can restore its
+    /// original start point instead of the stop's location; see
+    /// `TripDetector.tryMergeWithRecentTrip`.
+    var startLat: Double? = nil
+    var startLng: Double? = nil
     /// End coordinates — used by `CustomerSuggester` to remember the location
     /// of customers and auto-fill the name when a future trip ends nearby.
     var endLat: Double? = nil
