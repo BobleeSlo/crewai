@@ -75,6 +75,26 @@ final class NotificationManager: NSObject, ObservableObject, UNUserNotificationC
         try? await center.add(request)
     }
 
+    /// Sent the moment location authorization drops from Always to anything
+    /// else while auto-detect is enabled. Background trip detection depends
+    /// entirely on Always permission — CLLocationManager just silently stops
+    /// waking the app on a downgrade, with no error the user would ever see
+    /// unless they happen to open Settings or the Record tab. A real field
+    /// case went undetected for a full week because of exactly this silence.
+    func sendPermissionDowngradedNotification() async {
+        let content = UNMutableNotificationContent()
+        content.title = String(localized: "Auto-detect has stopped")
+        content.body = String(localized: "Location permission dropped to 'While Using' — trips won't be tracked in the background anymore. Tap to fix it in Settings.")
+        content.sound = .default
+
+        let request = UNNotificationRequest(
+            identifier: "permission-downgraded",
+            content: content,
+            trigger: nil   // deliver immediately
+        )
+        try? await center.add(request)
+    }
+
     // MARK: - Handling action taps
 
     nonisolated func userNotificationCenter(

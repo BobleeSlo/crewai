@@ -547,7 +547,9 @@ final class TripDetector: NSObject, ObservableObject {
             } else {
                 log.log(String(format: "AUDIT: ending trip — stationary %.0f min >= %.0f min timeout.",
                                stationaryMin, timeout), level: .info)
-                endTrip(reason: "stationary \(Int(stationaryMin)) min")
+                // Backdate endedAt to when the car actually stopped, not to
+                // whenever this audit finally got to run — see endTrip's doc.
+                endTrip(reason: "stationary \(Int(stationaryMin)) min", at: trip.lastMovementAt)
                 return
             }
         }
@@ -872,7 +874,16 @@ final class TripDetector: NSObject, ObservableObject {
 
     // MARK: - Trip end
 
-    private func endTrip(reason: String) {
+    /// `endedAt` defaults to now, correct for a force-stop or a detected
+    /// vehicle switch — those are real events happening at call time. The
+    /// stationary-timeout path overrides this with the trip's actual last
+    /// movement instant: if the app was fully suspended while the car sat
+    /// parked (confirmed by field data — a real trip once needed ~4h47m
+    /// before iOS gave the app any execution window to run this audit at
+    /// all, having genuinely stopped moving only 22s after its own start),
+    /// stamping `endedAt = Date()` would record the trip as having run for
+    /// hours it was actually just sitting parked and suspended.
+    private func endTrip(reason: String, at endedAt: Date = Date()) {
         guard let state = activeTrip else { return }
 
         // Discard very-short trips entirely — they're auto-detector noise
@@ -920,7 +931,7 @@ final class TripDetector: NSObject, ObservableObject {
             purpose: "",
             customerName: customer,
             startedAt: state.startedAt,
-            endedAt: Date(),
+            endedAt: endedAt,
             startAddress: "",
             endAddress: "",
             distanceKm: state.distanceKm,
@@ -1100,10 +1111,26 @@ extension TripDetector: CLLocationManagerDelegate {
         let status = manager.authorizationStatus
         Task { @MainActor [weak self] in
             guard let self else { return }
+            let previous = self.permission
             self.permission = status
             self.log.log("Location authorization changed: \(status.label)")
             if status == .authorizedAlways && self.store.settings.autoDetectEnabled && !self.isEnabled {
                 self.startMonitoring()
+            }
+            // A downgrade from Always silently breaks background auto-detect:
+            // CLLocationManager just stops waking the app, with no crash or
+            // error to notice — confirmed by a real field case where the app
+            // went quiet for a full week after an undetected downgrade to
+            // "While Using" (2026-07-21 log), discoverable only via the
+            // passive Settings/Record-tab hint that nobody had a reason to
+            // go looking at. Alert immediately instead of relying on that.
+            if previous == .authorizedAlways, status != .authorizedAlways,
+               self.store.settings.autoDetectEnabled {
+                self.log.log("Auto-detect background tracking has stopped — permission dropped from Always to \(status.label).",
+                              level: .warning)
+                if let notifications = self.notifications {
+                    Task { await notifications.sendPermissionDowngradedNotification() }
+                }
             }
         }
     }
