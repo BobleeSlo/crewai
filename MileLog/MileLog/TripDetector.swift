@@ -163,6 +163,32 @@ final class TripDetector: NSObject, ObservableObject {
     private let mergeWindowMinutes: Double = 15
     private let mergeRadiusMetres: Double = 300
 
+    /// Set only when `auditActiveTrip()` closes a trip on its FIRST pass
+    /// after an app relaunch (`restoreActiveTripIfAny`'s immediate audit),
+    /// never on a normal, continuously-running 60s tick. This distinction
+    /// matters: a normal tick closing a trip means the app was RUNNING and
+    /// genuinely observed no movement for the full timeout — trustworthy
+    /// evidence of a real stop. A post-relaunch closure means the app was
+    /// DEAD for however long the gap was and has no idea whether the car
+    /// kept moving the whole time — confirmed in the field (2026-07-22 log)
+    /// as happening repeatedly, with gaps of 23–61+ minutes, during what
+    /// the user reported was one continuous highway drive with Bluetooth
+    /// connected throughout. The normal merge tolerances (15 min / 300 m)
+    /// exist to avoid stitching together genuinely separate drives, and are
+    /// far too tight for a gap this size at highway speed — so this context
+    /// lets the very next trip for the SAME vehicle reclaim the interrupted
+    /// one directly, bypassing both limits, since same-vehicle-immediately-
+    /// after is itself strong evidence of a continuation rather than a
+    /// coincidence. See TRACKING-AUDIT-2026-07-22.md.
+    private var relaunchRecoveryContext: (tripID: UUID, vehicleID: UUID, endedAt: Date)?
+    /// Bounded well above the worst confirmed app-kill-during-driving gap
+    /// seen so far (61 min), but deliberately NOT extremely generous: this
+    /// reclaim can't tell "the app died mid-drive" apart from "the app died
+    /// while the car was ALSO genuinely parked for a while, then much later
+    /// a separate, unrelated trip begins" — too wide a window risks merging
+    /// two real, distinct trips into one and back-dating the second one.
+    private let relaunchRecoveryWindowMinutes: Double = 90
+
     init(store: Store, log: DetectionLog, notifications: NotificationManager) {
         self.store = store
         self.log = log
@@ -228,6 +254,7 @@ final class TripDetector: NSObject, ObservableObject {
     func disable() {
         stopMonitoring()
         if activeTrip != nil { endTrip(reason: "disabled by user") }
+        relaunchRecoveryContext = nil
     }
 
     /// User-initiated stop from the Record-tab banner. Records the elapsed
@@ -514,7 +541,12 @@ final class TripDetector: NSObject, ObservableObject {
     /// units routinely stay Bluetooth-connected long after the engine is
     /// off. Bluetooth is checked here ONLY for vehicle identification via
     /// checkVehicleSwitch(), never as a reason to keep the trip open.
-    private func auditActiveTrip() {
+    /// `isPostRelaunch` is true only for the one immediate call made right
+    /// after `restoreActiveTripIfAny()` resumes a persisted trip — see
+    /// `relaunchRecoveryContext`'s doc comment for why a stationary-timeout
+    /// ending needs to be treated differently when it happens here versus
+    /// on a normal, continuously-running 60s tick.
+    private func auditActiveTrip(isPostRelaunch: Bool = false) {
         guard let trip = activeTrip else {
             stopAuditTimer()
             return
@@ -547,6 +579,16 @@ final class TripDetector: NSObject, ObservableObject {
             } else {
                 log.log(String(format: "AUDIT: ending trip — stationary %.0f min >= %.0f min timeout.",
                                stationaryMin, timeout), level: .info)
+                // A post-relaunch closure is unconfirmed — the app was dead
+                // for the whole gap, so "stationary" here just means
+                // "unobserved," not "genuinely stopped." Remember this trip
+                // so the very next same-vehicle start can reclaim it instead
+                // of recording it as a real, separate stop.
+                if isPostRelaunch {
+                    relaunchRecoveryContext = (tripID: trip.id, vehicleID: trip.vehicleID, endedAt: trip.lastMovementAt)
+                    log.log("This closure followed an app relaunch, not a live observation — flagged for possible reclaim if driving resumes shortly.",
+                            level: .warning)
+                }
                 // Backdate endedAt to when the car actually stopped, not to
                 // whenever this audit finally got to run — see endTrip's doc.
                 endTrip(reason: "stationary \(Int(stationaryMin)) min", at: trip.lastMovementAt)
@@ -591,6 +633,27 @@ final class TripDetector: NSObject, ObservableObject {
     private func tryMergeWithRecentTrip(at location: CLLocation,
                                         vehicle: Vehicle,
                                         device: BluetoothAudioDevice?) -> Bool {
+        // Relaunch-recovery fast path — see the property's doc comment.
+        // Bypasses the normal time/distance tolerances entirely, because
+        // those exist to avoid stitching together genuinely separate
+        // drives, and this isn't that: it's the SAME vehicle starting again
+        // immediately after a trip we know was only closed because the app
+        // itself lost execution, not because anyone observed a real stop.
+        if let ctx = relaunchRecoveryContext,
+           ctx.vehicleID == vehicle.id,
+           Date().timeIntervalSince(ctx.endedAt) < relaunchRecoveryWindowMinutes * 60,
+           let lastTrip = store.trips.first(where: { $0.id == ctx.tripID }),
+           // Same intervening-vehicle guard as the normal merge path below —
+           // if a different vehicle was genuinely driven in between, this
+           // isn't a continuation, it's a real return to vehicle A later.
+           !store.trips.contains(where: { $0.vehicleID != vehicle.id && $0.startedAt > ctx.endedAt }) {
+            relaunchRecoveryContext = nil
+            log.log(String(format: "Reclaiming trip interrupted by app relaunch (gap %.0f min) — continuing rather than starting fresh.",
+                           Date().timeIntervalSince(ctx.endedAt) / 60), level: .info)
+            resumeTrip(lastTrip, at: location, vehicle: vehicle, device: device)
+            return true
+        }
+
         guard let lastTrip = store.trips
             .filter({ $0.vehicleID == vehicle.id && !$0.isLocked })
             .max(by: { $0.endedAt < $1.endedAt })
@@ -628,7 +691,16 @@ final class TripDetector: NSObject, ObservableObject {
                        lastTrip.startedAt.formatted(date: .omitted, time: .shortened)),
                 level: .info)
 
-        // Pull the saved trip back out and resurrect it as the active state.
+        resumeTrip(lastTrip, at: location, vehicle: vehicle, device: device)
+        return true
+    }
+
+    /// Pulls a saved trip back out of `store.trips` and resurrects it as the
+    /// active in-progress trip. Shared by the normal brief-stop merge and
+    /// the relaunch-recovery fast path above — both end with the exact same
+    /// resurrection, just reached via different tolerance checks.
+    private func resumeTrip(_ lastTrip: Trip, at location: CLLocation,
+                            vehicle: Vehicle, device: BluetoothAudioDevice?) {
         store.trips.removeAll { $0.id == lastTrip.id }
         store.save()
         if let supabase = store.supabaseService {
@@ -636,14 +708,14 @@ final class TripDetector: NSObject, ObservableObject {
             Task { try? await supabase.deleteTrip(id: id) }
         }
 
-        // Restore the ORIGINAL trip's start point, not the pause location
-        // (endLat/endLng above). Getting this wrong silently corrupts
-        // TripClassifier's home/work proximity check and the reverse-
-        // geocoded start address for every merged trip — confirmed by
-        // adversarial review. Falls back to endLat/endLng only for a trip
-        // saved before startLat/startLng existed on the model.
-        let originLat = lastTrip.startLat ?? endLat
-        let originLng = lastTrip.startLng ?? endLng
+        // Restore the ORIGINAL trip's start point, not the pause location.
+        // Getting this wrong silently corrupts TripClassifier's home/work
+        // proximity check and the reverse-geocoded start address for every
+        // merged trip — confirmed by adversarial review. Falls back to
+        // endLat/endLng only for a trip saved before startLat/startLng
+        // existed on the model.
+        let originLat = lastTrip.startLat ?? lastTrip.endLat ?? location.coordinate.latitude
+        let originLng = lastTrip.startLng ?? lastTrip.endLng ?? location.coordinate.longitude
 
         let resumed = ActiveTripState(
             id: lastTrip.id,                                       // keep id for any external refs
@@ -675,7 +747,6 @@ final class TripDetector: NSObject, ObservableObject {
         store.settings.energyMode.apply(to: manager)
         manager.startUpdatingLocation()
         startAuditTimer()
-        return true
     }
 
     /// When no BT match is available, prefer the vehicle from the user's most
@@ -1100,8 +1171,11 @@ final class TripDetector: NSObject, ObservableObject {
         // several times across a single long trip; each relaunch is a
         // chance to promptly close out a trip that's actually been
         // stationary the whole time the app was dead, rather than silently
-        // extending it further until the next scheduled audit.
-        auditActiveTrip()
+        // extending it further until the next scheduled audit. Marked
+        // isPostRelaunch so a resulting closure is flagged for reclaim
+        // rather than treated as a confirmed stop — see
+        // relaunchRecoveryContext's doc comment.
+        auditActiveTrip(isPostRelaunch: true)
     }
 }
 
