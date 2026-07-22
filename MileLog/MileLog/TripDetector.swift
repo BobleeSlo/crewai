@@ -188,6 +188,19 @@ final class TripDetector: NSObject, ObservableObject {
     /// a separate, unrelated trip begins" — too wide a window risks merging
     /// two real, distinct trips into one and back-dating the second one.
     private let relaunchRecoveryWindowMinutes: Double = 90
+    /// Only arm the reclaim when the observed gap clearly exceeds what a
+    /// normal stop should ever produce — an ordinary errand a little over
+    /// `stationaryTimeoutMinutes` that happens to coincide with an unrelated
+    /// relaunch must NOT be flagged, or a later, genuinely separate trip in
+    /// the same vehicle could get force-merged into it (adversarial review
+    /// finding). Comfortably below the smallest confirmed app-kill gap seen
+    /// in the field (23 min).
+    private let relaunchRecoveryMinGapMinutes: Double = 15
+    /// Sanity bound on the reclaim itself: the new trip's start must be
+    /// reachable from the old trip's last known point within the elapsed
+    /// gap at a generous highway speed — otherwise this isn't a
+    /// continuation, it's a coincidence (adversarial review finding).
+    private let relaunchRecoveryMaxSpeedKmh: Double = 160
 
     init(store: Store, log: DetectionLog, notifications: NotificationManager) {
         self.store = store
@@ -255,6 +268,7 @@ final class TripDetector: NSObject, ObservableObject {
         stopMonitoring()
         if activeTrip != nil { endTrip(reason: "disabled by user") }
         relaunchRecoveryContext = nil
+        clearPersistedRelaunchRecoveryContext()
     }
 
     /// User-initiated stop from the Record-tab banner. Records the elapsed
@@ -581,11 +595,18 @@ final class TripDetector: NSObject, ObservableObject {
                                stationaryMin, timeout), level: .info)
                 // A post-relaunch closure is unconfirmed — the app was dead
                 // for the whole gap, so "stationary" here just means
-                // "unobserved," not "genuinely stopped." Remember this trip
-                // so the very next same-vehicle start can reclaim it instead
-                // of recording it as a real, separate stop.
-                if isPostRelaunch {
+                // "unobserved," not "genuinely stopped." Only worth flagging
+                // for reclaim when the gap is anomalously large, though: an
+                // ordinary stop just a little over the timeout (a red light,
+                // a quick errand) that happens to coincide with a relaunch
+                // is still a perfectly normal, trustworthy ending — arming
+                // the reclaim for THAT would risk force-merging a later,
+                // genuinely separate trip (adversarial review finding).
+                // relaunchRecoveryMinGapMinutes filters for gaps clearly
+                // beyond what a real stop should ever produce.
+                if isPostRelaunch, stationaryMin >= relaunchRecoveryMinGapMinutes {
                     relaunchRecoveryContext = (tripID: trip.id, vehicleID: trip.vehicleID, endedAt: trip.lastMovementAt)
+                    persistRelaunchRecoveryContext()
                     log.log("This closure followed an app relaunch, not a live observation — flagged for possible reclaim if driving resumes shortly.",
                             level: .warning)
                 }
@@ -647,11 +668,32 @@ final class TripDetector: NSObject, ObservableObject {
            // if a different vehicle was genuinely driven in between, this
            // isn't a continuation, it's a real return to vehicle A later.
            !store.trips.contains(where: { $0.vehicleID != vehicle.id && $0.startedAt > ctx.endedAt }) {
+            let elapsedGapSeconds = Date().timeIntervalSince(ctx.endedAt)
+            // Plausibility bound: the new start must be reachable from the
+            // old trip's last known point within the gap at a generous
+            // highway speed. Without this, a same-vehicle trip that starts
+            // somewhere completely unrelated hours later (a genuinely
+            // separate errand, not a continuation) would still get
+            // force-merged (adversarial review finding). No last-known
+            // point at all (shouldn't happen — endTrip always sets one) is
+            // treated as unable to refute plausibility rather than blocking.
+            let distance: CLLocationDistance = {
+                guard let endLat = lastTrip.endLat, let endLng = lastTrip.endLng else { return 0 }
+                return CLLocation(latitude: endLat, longitude: endLng).distance(from: location)
+            }()
+            let maxPlausibleMetres = (elapsedGapSeconds / 3600) * relaunchRecoveryMaxSpeedKmh * 1000
+
             relaunchRecoveryContext = nil
-            log.log(String(format: "Reclaiming trip interrupted by app relaunch (gap %.0f min) — continuing rather than starting fresh.",
-                           Date().timeIntervalSince(ctx.endedAt) / 60), level: .info)
-            resumeTrip(lastTrip, at: location, vehicle: vehicle, device: device)
-            return true
+            clearPersistedRelaunchRecoveryContext()
+
+            if distance <= maxPlausibleMetres {
+                log.log(String(format: "Reclaiming trip interrupted by app relaunch (gap %.0f min, %.0f m from last known point) — continuing rather than starting fresh.",
+                               elapsedGapSeconds / 60, distance), level: .info)
+                resumeTrip(lastTrip, at: location, vehicle: vehicle, device: device)
+                return true
+            }
+            log.log(String(format: "Relaunch-recovery skipped: %.0f m from last known point exceeds plausible travel for a %.0f min gap — treating as a separate trip.",
+                           distance, elapsedGapSeconds / 60), level: .warning)
         }
 
         guard let lastTrip = store.trips
@@ -971,6 +1013,13 @@ final class TripDetector: NSObject, ObservableObject {
             stopAuditTimer()
             activeTrip = nil
             clearPersistedActiveTrip()
+            // A discarded trip never lands in store.trips, so any relaunch-
+            // recovery flag pointing at it could never be found again —
+            // clear it now rather than leave dead state to age out on its own.
+            if relaunchRecoveryContext?.tripID == state.id {
+                relaunchRecoveryContext = nil
+                clearPersistedRelaunchRecoveryContext()
+            }
             return
         }
 
@@ -1138,6 +1187,32 @@ final class TripDetector: NSObject, ObservableObject {
         try? FileManager.default.removeItem(at: candidateURL)
     }
 
+    private var relaunchRecoveryURL: URL {
+        let dir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        return dir.appendingPathComponent("relaunch-recovery.json")
+    }
+
+    private struct PersistedRelaunchRecovery: Codable {
+        var tripID: UUID
+        var vehicleID: UUID
+        var endedAt: Date
+    }
+
+    /// Without this, a SECOND kill before the interrupted trip gets
+    /// reclaimed (e.g. during the ~90s verification window right after the
+    /// relaunch that armed this) would lose the context entirely on the
+    /// next relaunch, defeating the whole point for exactly the repeatedly-
+    /// killed pattern this fix targets (adversarial review finding).
+    private func persistRelaunchRecoveryContext() {
+        guard let ctx = relaunchRecoveryContext else { return }
+        let p = PersistedRelaunchRecovery(tripID: ctx.tripID, vehicleID: ctx.vehicleID, endedAt: ctx.endedAt)
+        try? JSONEncoder().encode(p).write(to: relaunchRecoveryURL)
+    }
+
+    private func clearPersistedRelaunchRecoveryContext() {
+        try? FileManager.default.removeItem(at: relaunchRecoveryURL)
+    }
+
     /// On launch, restore an in-progress trip if there is one, and clean up
     /// stale verification candidates left from a previous run that was
     /// killed mid-verification.
@@ -1154,7 +1229,23 @@ final class TripDetector: NSObject, ObservableObject {
             }
         }
 
-        // 2. Restore in-progress trip and resume GPS + audit so the trip's
+        // 2. Restore a pending relaunch-recovery context, if any and still
+        //    within its window — otherwise a SECOND kill before the
+        //    interrupted trip gets reclaimed (e.g. during the verification
+        //    window right after the relaunch that armed it) would lose it
+        //    entirely, defeating the point for exactly the repeatedly-killed
+        //    pattern this exists for (adversarial review finding).
+        if let data = try? Data(contentsOf: relaunchRecoveryURL),
+           let p = try? JSONDecoder().decode(PersistedRelaunchRecovery.self, from: data) {
+            if Date().timeIntervalSince(p.endedAt) < relaunchRecoveryWindowMinutes * 60 {
+                relaunchRecoveryContext = (tripID: p.tripID, vehicleID: p.vehicleID, endedAt: p.endedAt)
+                log.log("Restored pending relaunch-recovery context from a previous run.", level: .info)
+            } else {
+                clearPersistedRelaunchRecoveryContext()
+            }
+        }
+
+        // 3. Restore in-progress trip and resume GPS + audit so the trip's
         //    end (stationary timeout) can still be detected.
         guard let data = try? Data(contentsOf: activeTripURL),
               let trip = try? JSONDecoder().decode(ActiveTripState.self, from: data) else { return }

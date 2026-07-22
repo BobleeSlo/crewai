@@ -50,7 +50,26 @@ This does not fix *why* the app is losing execution — only the Xcode/iOS-side 
 
 ## Part 4 — Independent adversarial review
 
-*(Findings from a dedicated review of this change — merge-safety, race conditions, and the coordinate-fallback logic — recorded below once complete.)*
+A fresh reviewer, given only the diff and told to trace concrete execution paths, found two real gaps in the first version of this fix and confirmed the rest sound.
+
+| # | Finding | Severity | Verdict | Action |
+|---|---|---|---|---|
+| 1 | The reclaim had no distance bound, and was armed too easily: `isPostRelaunch` alone (any post-relaunch stationary-timeout ending) was enough, so an ordinary stop just over the 5-minute timeout that happened to coincide with an unrelated relaunch would arm it — then a later, genuinely separate errand in the same vehicle within 90 minutes could get force-merged into it | **High** | Confirmed, real | Fixed — see below |
+| 2 | `relaunchRecoveryContext` was in-memory only. A second kill before the reclaim actually happened (e.g. during the ~90s verification window right after the relaunch that armed it) would lose it entirely on the next relaunch — directly undermining the fix for exactly the repeatedly-killed pattern it targets | Medium-High | Confirmed, real | Fixed — see below |
+| 3 | A discarded (<0.2 km) trip can never be found again in `store.trips`, so an armed context pointing at one just ages out as harmless dead state rather than being cleared immediately | Low | Confirmed, harmless | Fixed (trivial) |
+
+Verified sound: no double-resume race (the relaunch check runs first and returns early; nothing in the chain suspends mid-merge), the coordinate-fallback in the shared `resumeTrip` helper (unchanged behavior for the normal merge path; dead code but not a live bug for the relaunch path, since `ctx.tripID` only ever refers to a trip `endTrip` created, which always sets `endLat`/`endLng`), no duplicated resurrection code, `disable()`'s clear, and Swift 6/`@MainActor` isolation throughout.
+
+### Fixes applied from this review
+
+**A. Raised the bar for arming the reclaim, and bounded the reclaim by plausible distance.**
+- New `relaunchRecoveryMinGapMinutes = 15`: a post-relaunch ending only arms the reclaim when the observed gap clearly exceeds what a normal stop should ever produce — comfortably below the smallest confirmed app-kill gap in the field (23 min), well above an ordinary errand.
+- New `relaunchRecoveryMaxSpeedKmh = 160`: at reclaim time, the new trip's start must be reachable from the old trip's last known point within the elapsed gap at this generous highway speed, or the reclaim is refused and logged (`Relaunch-recovery skipped: ... exceeds plausible travel`) and the context is dropped rather than force-merging an implausible jump.
+- `relaunchRecoveryWindowMinutes` left at 90 (already tightened from an initial 180 before this review, for the same reason).
+
+**B. Persisted the recovery context to disk**, mirroring the existing `active-trip.json`/`active-candidate.json` pattern (`relaunch-recovery.json`, written on arming, read back in `restoreActiveTripIfAny()` if still within the window, cleared on consumption/rejection/disable). A second kill before the reclaim now survives correctly.
+
+**C. Clear the context immediately if the trip it points at gets discarded as noise** (<0.2 km) in `endTrip`, rather than leaving harmless dead state to age out on its own.
 
 ## What to verify next
 
