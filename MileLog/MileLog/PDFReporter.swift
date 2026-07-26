@@ -478,7 +478,16 @@ enum PDFReporter {
         // reference logbook doesn't track exact times per leg on a
         // multi-trip day either, just a single departure/return pair.
         let odhod = trips.first.map { timeFormatter.string(from: $0.startedAt) } ?? ""
-        let prihod = trips.last.map { timeFormatter.string(from: $0.endedAt) } ?? ""
+        // Rows are grouped by startedAt's calendar day, but a trip can end
+        // after midnight — printing a bare "00:15" under a row dated the
+        // day before reads as arriving before departing. Flag it rather
+        // than silently rendering an internally-inconsistent pair on an
+        // official travel-order document (round-15 adversarial review
+        // finding).
+        let prihod = trips.last.map { trip -> String in
+            let time = timeFormatter.string(from: trip.endedAt)
+            return Calendar.current.isDate(trip.endedAt, inSameDayAs: date) ? time : "\(time) (+1)"
+        } ?? ""
 
         let cells = [
             "\(day)",

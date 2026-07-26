@@ -14,6 +14,7 @@ struct TripEditor: View {
     @State private var tripPoints: [TripPointDTO] = []
     @State private var receipts: [Receipt] = []
     @State private var showsStaleLockAlert = false
+    @State private var showsInProgressAlert = false
 
     /// Distance, date, vehicle become read-only on a locked trip.
     private var isLocked: Bool { trip.isLocked }
@@ -153,7 +154,23 @@ struct TripEditor: View {
                     // either case, but saving straight through would give
                     // zero indication anything didn't apply (round-12/14
                     // findings) — check freshness first.
-                    if let live = store.trips.first(where: { $0.id == trip.id }),
+                    let live = store.trips.first(where: { $0.id == trip.id })
+                    if !isNew, live == nil {
+                        // Not locked-elsewhere and not merely re-ended —
+                        // the trip has been pulled OUT of store.trips
+                        // entirely, which only happens when TripDetector's
+                        // brief-stop merge reclaims it as an in-progress
+                        // drive again (same reasoning NotificationManager's
+                        // "back in progress" handling already relies on for
+                        // the identical scenario). Saving now would fall
+                        // through to Store.addTrip's un-merged fallback —
+                        // bypassing every field-level protection this whole
+                        // mechanism exists for — and then get silently
+                        // clobbered again the moment the resumed drive
+                        // truly ends. Block entirely rather than pretending
+                        // to save (round-15 adversarial review finding).
+                        showsInProgressAlert = true
+                    } else if let live,
                        (!isLocked && live.isLocked) || live.endedAt != trip.endedAt {
                         showsStaleLockAlert = true
                     } else {
@@ -188,6 +205,11 @@ struct TripEditor: View {
             }
         } message: {
             Text("It was locked or updated elsewhere while open, so mileage and type can't be changed here — those edits were discarded. Purpose, customer and notes were saved.")
+        }
+        .alert("This trip is back in progress", isPresented: $showsInProgressAlert) {
+            Button("OK") { dismiss() }
+        } message: {
+            Text("The car started moving again before you saved, so this was merged back into an ongoing drive. Your edits weren't saved — reclassify it once the drive ends.")
         }
     }
 }
