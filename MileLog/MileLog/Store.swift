@@ -175,18 +175,32 @@ final class Store: ObservableObject {
         // Addresses are read-only display data in TripEditor (never a
         // TextField) and only ever meaningfully change via TripDetector's
         // async reverse-geocode backfill — which calls this same function.
-        // They were missing from this merge's whitelist entirely, silently
-        // dropping every auto-detected trip's resolved From/To address on
-        // that backfill (a straight-up regression from the whitelist
-        // approach itself: it protected TripEditor's user-facing save
-        // while breaking a completely different, legitimate caller the
-        // whitelist never anticipated). Not compliance-relevant data (the
-        // immutable lat/lng already captured it), so always allowed
-        // through regardless of lock status (round-13 adversarial review
-        // finding).
-        merged.startAddress = trip.startAddress
-        merged.endAddress = trip.endAddress
-        if !previous.isLocked {
+        // Prefer non-empty rather than blindly taking `trip`'s value, for
+        // the same reason as reviewedAt above: a stale TripEditor opened
+        // BEFORE the geocode Task resolved still has empty addresses, and
+        // saving it after that Task already patched in the real address
+        // would silently stomp it back to blank (round-14 adversarial
+        // review finding — the round-13 fix that made this field always-
+        // copied to fix ONE caller's staleness broke the other direction
+        // for a different caller).
+        merged.startAddress = trip.startAddress.isEmpty ? previous.startAddress : trip.startAddress
+        merged.endAddress = trip.endAddress.isEmpty ? previous.endAddress : trip.endAddress
+        // Gate distance/type on the trip not having been re-ended under
+        // the same id since this snapshot was taken, in addition to lock
+        // status. TripDetector's brief-stop merge (tryMergeWithRecentTrip/
+        // resumeTrip) removes an unreviewed, unlocked trip from
+        // store.trips entirely and resurrects it as the active trip when
+        // the vehicle starts moving again nearby — if the user has that
+        // trip's (now stale) detail screen open when this happens, and the
+        // resumed drive later ends for real with different final mileage,
+        // `previous.isLocked` alone can't detect that the trip was
+        // effectively replaced underneath the stale screen: the fresh,
+        // correct trip is unlocked too. `endedAt` changes every time
+        // endTrip runs — the same cheap version marker TripDetector's own
+        // geocode-backfill Task already relies on for an identical
+        // staleness check — so comparing it here closes the same class of
+        // gap for distance/type (round-14 adversarial review finding).
+        if !previous.isLocked && previous.endedAt == trip.endedAt {
             // `type` directly determines the reimbursement figure the lock
             // exists to freeze (Trip.reimbursement() pays a different rate —
             // or zero — per type) — it must be exactly as immutable as

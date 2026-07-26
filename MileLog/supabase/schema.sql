@@ -85,8 +85,8 @@ create table if not exists receipts (
 
 create table if not exists trip_audit_log (
   id bigserial primary key,
-  trip_id uuid not null,
-  user_id uuid not null,
+  trip_id uuid not null references trips(id) on delete cascade,
+  user_id uuid not null references auth.users(id) on delete cascade,
   changed_at timestamptz default now(),
   field_name text,
   old_value text,
