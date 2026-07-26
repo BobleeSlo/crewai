@@ -19,7 +19,13 @@ struct VehiclesView: View {
     var body: some View {
         NavigationStack {
             Group {
-                if store.activeVehicles.isEmpty && store.archivedVehicles.isEmpty && store.isSyncing {
+                if store.activeVehicles.isEmpty && store.archivedVehicles.isEmpty
+                    && store.lastSyncFailed && !store.isSyncing {
+                    // "Couldn't reach your vehicles" rather than the
+                    // confident "No vehicles yet" — same reasoning as
+                    // TripsListView (round-5 UX review finding).
+                    syncFailedState
+                } else if store.activeVehicles.isEmpty && store.archivedVehicles.isEmpty && store.isSyncing {
                     // Same reasoning as TripsListView: a returning user's
                     // real vehicle list may just still be downloading on a
                     // new device (round-3 UX review finding).
@@ -70,7 +76,7 @@ struct VehiclesView: View {
                 }
                 Button("Cancel", role: .cancel) { }
             } message: { vehicle in
-                Text("\"\(vehicle.name)\" will be removed from your device and Supabase. Only do this if no trips reference this vehicle.")
+                Text("\"\(vehicle.name)\" will be removed from this device and your cloud backup. Only do this if no trips reference this vehicle.")
             }
             .confirmationDialog(
                 "Delete \"\(swipeDeleteCandidate?.name ?? "")\"?",
@@ -127,6 +133,7 @@ struct VehiclesView: View {
                 }
             }
         }
+        .refreshable { await store.retrySync() }
     }
 
     // MARK: - Empty state
@@ -155,6 +162,38 @@ struct VehiclesView: View {
                 showingAdd = true
             } label: {
                 Label("Add vehicle", systemImage: "plus")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 12)
+                    .background(Theme.brandGradient)
+                    .clipShape(Capsule())
+            }
+            .padding(.top, 4)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    // MARK: - Sync-failed state
+
+    private var syncFailedState: some View {
+        VStack(spacing: 16) {
+            Image(systemName: "icloud.slash")
+                .font(.system(size: 48, weight: .light))
+                .foregroundColor(.secondary)
+            VStack(spacing: 6) {
+                Text("Couldn't load your vehicles")
+                    .font(.title3.bold())
+                Text("We couldn't reach your saved vehicles. They're safe — check your connection and try again.")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 32)
+            }
+            Button {
+                Task { await store.retrySync() }
+            } label: {
+                Label("Try again", systemImage: "arrow.clockwise")
                     .font(.subheadline.weight(.semibold))
                     .foregroundColor(.white)
                     .padding(.horizontal, 20)

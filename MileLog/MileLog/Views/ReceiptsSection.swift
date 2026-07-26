@@ -32,6 +32,7 @@ struct ReceiptsSection: View {
     /// record meant for tax/reimbursement, silently trusting an
     /// unconfirmed OCR guess is a real accuracy problem.
     @State private var pendingImage: UIImage?
+    @State private var deleteCandidate: Receipt?
 
     var body: some View {
         Section("Receipts") {
@@ -58,6 +59,24 @@ struct ReceiptsSection: View {
             if let errorText {
                 Text(errorText).font(.footnote).foregroundColor(.red)
             }
+        }
+        .confirmationDialog(
+            "Delete this receipt?",
+            isPresented: Binding(
+                get: { deleteCandidate != nil },
+                set: { if !$0 { deleteCandidate = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button("Delete", role: .destructive) {
+                if let receipt = deleteCandidate {
+                    Task { await confirmDelete(receipt) }
+                }
+                deleteCandidate = nil
+            }
+            Button("Cancel", role: .cancel) { deleteCandidate = nil }
+        } message: {
+            Text("Its photo and amount will be permanently removed from this trip.")
         }
         .confirmationDialog("Add receipt photo", isPresented: $showingSourcePicker) {
             Button {
@@ -225,8 +244,23 @@ struct ReceiptsSection: View {
     }
 
     private func deleteReceipts(at offsets: IndexSet) {
-        // Soft delete locally; Supabase row deletion can be added later.
-        receipts.remove(atOffsets: offsets)
+        // Previously local-only ("Supabase row deletion can be added
+        // later"), which meant the receipt reappeared the next time the
+        // trip was opened, since TripEditor re-pulls on every appearance.
+        // It was also the last destructive action in the app with no
+        // confirmation, after rounds 1-2 added one everywhere else
+        // (round-5 UX review finding).
+        guard let first = offsets.first, receipts.indices.contains(first) else { return }
+        deleteCandidate = receipts[first]
+    }
+
+    private func confirmDelete(_ receipt: Receipt) async {
+        do {
+            try await supabase.deleteReceipt(receipt)
+            receipts.removeAll { $0.id == receipt.id }
+        } catch {
+            errorText = "Couldn't delete the receipt — check your connection and try again."
+        }
     }
 }
 

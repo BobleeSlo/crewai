@@ -52,6 +52,19 @@ struct AuthView: View {
                         infoMessage = nil
                     }
                     .font(.footnote)
+
+                    // Without this there was no recovery path at all — a
+                    // forgotten password permanently locked the user out of
+                    // their entire mileage history (round-5 UX review
+                    // finding). Only offered on the sign-in side, where it
+                    // makes sense.
+                    if !isSignUp {
+                        Button("Forgot password?") {
+                            Task { await sendReset() }
+                        }
+                        .font(.footnote)
+                        .disabled(supabase.isWorking || !email.contains("@"))
+                    }
                 }
 
                 Section {
@@ -66,6 +79,21 @@ struct AuthView: View {
             }
             .navigationTitle("MileLog")
             .keyboardDoneToolbar()
+        }
+    }
+
+    private func sendReset() async {
+        errorMessage = nil
+        infoMessage = nil
+        do {
+            try await supabase.sendPasswordReset(email: email)
+            // Deliberately phrased so it's true whether or not an account
+            // exists for that address — confirming which addresses are
+            // registered would leak account existence to anyone who can
+            // type an email in.
+            infoMessage = "If an account exists for \(email), a password reset link is on its way."
+        } catch {
+            errorMessage = Self.friendlyAuthError(error)
         }
     }
 

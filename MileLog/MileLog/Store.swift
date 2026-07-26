@@ -19,6 +19,21 @@ final class Store: ObservableObject {
     /// which is genuinely alarming for what's meant to be a defensible tax
     /// record (round-3 UX review finding).
     @Published private(set) var isSyncing = false
+    /// True when the last sync couldn't DOWNLOAD from the cloud. Distinct
+    /// from `isSyncing`: it's the difference between "still loading" and
+    /// "couldn't reach your data," which the UI previously collapsed into
+    /// the same confident "you have nothing yet" empty state (round-5 UX
+    /// review finding).
+    @Published private(set) var lastSyncFailed = false
+
+    /// Re-runs `initialSync` against the already-connected service. Backs
+    /// pull-to-refresh, so a user whose first sync failed has a way to
+    /// retry other than force-quitting the app — `initialSync` is
+    /// otherwise called from exactly one place, on sign-in only.
+    func retrySync() async {
+        guard let supabase else { return }
+        await initialSync(via: supabase)
+    }
 
     /// Convenience accessor kept for the existing UI/CSV code.
     var reimbursementRate: Double {
@@ -652,9 +667,20 @@ final class Store: ObservableObject {
         let settingsPushed = (try? await supabase.pushSettings(settings)) != nil
         guard myGeneration == syncGeneration else { return }
 
+        // Track whether the DOWNLOAD half actually worked. Every call here
+        // is `try?`-swallowed by design (a failed push is retried on the
+        // next sync), but a failed PULL is different: it's the difference
+        // between "you have no trips" and "we couldn't reach your trips,"
+        // and the UI was showing the former for the latter — on a screen
+        // telling a user with years of tax records to "record your first
+        // trip" (round-5 UX review finding).
+        var pullSucceeded = true
+
         if let cloudVehicles = try? await supabase.pullVehicles() {
             let localIDs = Set(vehicles.map(\.id))
             vehicles += cloudVehicles.filter { !localIDs.contains($0.id) && !deletedVehicleIDs.contains($0.id) }
+        } else {
+            pullSucceeded = false
         }
         if let cloudTrips = try? await supabase.pullTrips() {
             let localIDs = Set(trips.map(\.id))
@@ -662,7 +688,10 @@ final class Store: ObservableObject {
             trips += cloudTrips.filter {
                 !localIDs.contains($0.id) && $0.id != activeID && !deletedTripIDs.contains($0.id)
             }
+        } else {
+            pullSucceeded = false
         }
+        lastSyncFailed = !pullSucceeded
         // Unlike trips/vehicles, settings is a single object with no id to
         // merge by — so the only safe way to avoid clobbering a local edit
         // that failed to push is to skip adopting the cloud copy entirely

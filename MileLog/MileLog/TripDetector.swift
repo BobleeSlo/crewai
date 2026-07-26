@@ -206,6 +206,12 @@ final class TripDetector: NSObject, ObservableObject {
     private var pendingSwitchFirstSeenAt: Date?
     private let switchConfirmSeconds: TimeInterval = 8
 
+    /// True once the user has been told a detected drive couldn't be saved
+    /// for lack of any registered vehicle. Keeps that alert to once per
+    /// spell rather than once per drive (round-5 UX review finding); reset
+    /// by `startMonitoring()` so a later relapse alerts again.
+    private var hasWarnedNoVehicle = false
+
     // Active-trip persistence throttle: JSON-encoding + rewriting the whole
     // active-trip file on every single GPS callback (which can arrive every
     // few metres on a long drive) is real I/O cost that risks delaying the
@@ -415,6 +421,10 @@ final class TripDetector: NSObject, ObservableObject {
             object: nil
         )
         isEnabled = true
+        // Clear the once-per-spell no-vehicle warning: if the user has
+        // since added a vehicle this is moot, and if they haven't, they
+        // deserve to be told again the next time a drive is lost.
+        hasWarnedNoVehicle = false
         log.log("Auto-detect ON.", level: .info)
     }
 
@@ -576,11 +586,23 @@ final class TripDetector: NSObject, ObservableObject {
             let vehicle = confirmedVehicle ?? fallbackVehicle()
             guard let vehicle else {
                 log.log("Verification passed but no vehicle is registered at all — trip dropped.", level: .error)
-                // Tell the user too: a verified real drive being discarded
-                // is exactly the kind of silent loss that undermines trust
-                // in a mileage log, and the Detection Log alone reaches
-                // nobody (round-4 UX review finding).
-                if let notifications {
+                // Tear down exactly like the FAILED branch below. Round 4
+                // added the notification here but returned without stopping
+                // anything — and since `candidate` was just cleared above,
+                // the very next GPS fix restarted verification, passed
+                // early on the first >25 km/h fix, and dropped again. That
+                // looped for the whole drive: a re-alerting banner every
+                // few seconds plus continuous GPS and CoreMotion with
+                // background updates held, in exactly the first-run state
+                // the notification was written for (round-5 UX review
+                // finding — a regression from round 4's own fix).
+                motion.stop()
+                manager.stopUpdatingLocation()
+                // Only alert once per "user still has no vehicle" spell,
+                // rather than once per detected drive. Reset in
+                // `setAutoDetect`/`startMonitoring` once a vehicle exists.
+                if let notifications, !hasWarnedNoVehicle {
+                    hasWarnedNoVehicle = true
                     Task { await notifications.sendNoVehicleTripDroppedNotification() }
                 }
                 return
@@ -606,6 +628,27 @@ final class TripDetector: NSObject, ObservableObject {
             // decision this consequential (adversarial review finding).
             // The trip still starts (with the best guess available), it
             // just can't silently absorb someone else's confirmed trip.
+            //
+            // …unless the user started a manual recording while this
+            // verification window was open. `handleSignificantLocation`
+            // guards against that case before ARMING verification, but
+            // nothing re-checked it before COMMITTING ~90s later, and
+            // `LocationManager.start()` only refuses when a trip is
+            // already active — a pending candidate doesn't stop it. So
+            // both recorders could end up live on the same drive, and
+            // because RecordTripView renders its Stop button as
+            // `if !autoActive`, the manual recording's only stop control
+            // vanished the moment the auto trip committed — leaving it
+            // running with background location held until the same drive
+            // got saved twice, double-counting km in a tax report
+            // (round-5 UX review finding). The user's explicit tap wins.
+            if let manual = manualLocationManager, manual.isTracking {
+                log.log("Verification passed, but a manual recording is already in progress — leaving this drive to the manual recorder.",
+                        level: .warning)
+                motion.stop()
+                manager.stopUpdatingLocation()
+                return
+            }
             commitTripStart(at: c.startLocation, startedAt: c.startedAt,
                             vehicle: vehicle, device: device,
                             allowMerge: confirmedVehicle != nil)

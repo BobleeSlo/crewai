@@ -64,6 +64,17 @@ final class SupabaseService: ObservableObject {
         await refreshAuth()
     }
 
+    /// Sends a password-reset email. Without this the app had no recovery
+    /// path at all: a user who forgot their password — most likely exactly
+    /// when the sign-in screen reappears, i.e. a new device or an expired
+    /// session — was permanently locked out of their entire mileage
+    /// history with no in-app way forward (round-5 UX review finding).
+    func sendPasswordReset(email: String) async throws {
+        isWorking = true
+        defer { isWorking = false }
+        try await client.auth.resetPasswordForEmail(email)
+    }
+
     func signOut() async {
         isWorking = true
         defer { isWorking = false }
@@ -72,6 +83,14 @@ final class SupabaseService: ObservableObject {
         // reacts leaves the whole in-between window unguarded.
         detector?.discardActiveTripForAccountSwitch()
         manualLocation?.discardIfTracking()
+        // Also stop WATCHING for new trips. Discarding the in-flight trip
+        // alone left significant-location monitoring running under no
+        // account: a signed-out user kept burning battery, kept getting
+        // "Trip ended" notifications for drives recorded against nobody,
+        // and those trips were then silently wiped if a different account
+        // later signed in — with nothing on the auth screen hinting the
+        // app was still tracking (round-5 UX review finding).
+        detector?.disable()
         try? await client.auth.signOut()
         await refreshAuth()
     }
@@ -188,6 +207,24 @@ final class SupabaseService: ObservableObject {
 
     func downloadReceiptPhoto(path: String) async throws -> Data {
         try await client.storage.from("receipts").download(path: path)
+    }
+
+    /// Removes the receipt row and its stored photo. Without this,
+    /// `ReceiptsSection`'s swipe-to-delete only mutated its local array —
+    /// and since `TripEditor` re-pulls receipts every time the trip is
+    /// opened, the "deleted" receipt simply reappeared and stayed attached
+    /// to the record (round-5 UX review finding). The photo delete is
+    /// best-effort: an orphaned blob is a storage-cost annoyance, whereas
+    /// a row that won't stay deleted is a visible correctness problem, so
+    /// the row delete is the one allowed to throw.
+    func deleteReceipt(_ receipt: Receipt) async throws {
+        try await client.from("receipts")
+            .delete()
+            .eq("id", value: receipt.id)
+            .execute()
+        if !receipt.photoPath.isEmpty {
+            try? await client.storage.from("receipts").remove(paths: [receipt.photoPath])
+        }
     }
 
     // MARK: - Helpers

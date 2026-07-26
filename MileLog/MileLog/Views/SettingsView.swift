@@ -318,9 +318,17 @@ struct SettingsView: View {
                             Label("Export \(store.exportableTripCount) trips as CSV",
                                   systemImage: "tablecells")
                         }
-                    } else {
+                    } else if store.exportableTripCount == 0 {
                         Text("No trips to export yet.")
                             .foregroundColor(.secondary)
+                    } else {
+                        // A CSV write failure previously collapsed into the
+                        // "no trips" branch above, telling a user with
+                        // hundreds of trips they had nothing to export
+                        // (round-5 UX review finding) — the same class of
+                        // silent failure round 2 fixed for PDF generation.
+                        Text("Couldn't prepare the export — check available storage and try again.")
+                            .foregroundColor(.red)
                     }
                 } header: {
                     SectionHeaderLabel(title: "All trips (CSV)", systemImage: "tablecells")

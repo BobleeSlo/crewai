@@ -17,7 +17,9 @@ struct TripsListView: View {
     var body: some View {
         NavigationStack {
             Group {
-                if store.trips.isEmpty && store.isSyncing {
+                if store.trips.isEmpty && store.lastSyncFailed && !store.isSyncing {
+                    syncFailedState
+                } else if store.trips.isEmpty && store.isSyncing {
                     // A returning user restoring an account with months of
                     // history on a new phone, on a slow connection, would
                     // otherwise see the confident "No trips yet" empty
@@ -72,6 +74,11 @@ struct TripsListView: View {
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
         .background(backgroundWash)
+        // The app otherwise syncs exactly once, on sign-in — there was no
+        // way at all to re-pull after a failure or to pick up changes made
+        // on another device, short of force-quitting (round-5 UX review
+        // finding).
+        .refreshable { await store.retrySync() }
         .confirmationDialog(
             "Delete this trip?",
             isPresented: Binding(
@@ -137,6 +144,43 @@ struct TripsListView: View {
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 32)
             }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(backgroundWash)
+    }
+
+    // MARK: - Sync-failed state
+
+    /// Shown instead of the "No trips yet" empty state when the last sync
+    /// couldn't reach the cloud — telling a user with years of records to
+    /// "record your first trip" is the single most alarming thing this
+    /// screen could say (round-5 UX review finding).
+    private var syncFailedState: some View {
+        VStack(spacing: 16) {
+            Image(systemName: "icloud.slash")
+                .font(.system(size: 48, weight: .light))
+                .foregroundColor(.secondary)
+            VStack(spacing: 6) {
+                Text("Couldn't load your trips")
+                    .font(.title3.bold())
+                Text("We couldn't reach your saved trips. They're safe — check your connection and try again.")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 32)
+            }
+            Button {
+                Task { await store.retrySync() }
+            } label: {
+                Label("Try again", systemImage: "arrow.clockwise")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 12)
+                    .background(Theme.brandGradient)
+                    .clipShape(Capsule())
+            }
+            .padding(.top, 4)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(backgroundWash)

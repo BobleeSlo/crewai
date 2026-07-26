@@ -99,6 +99,16 @@ struct RecordTripView: View {
             // arriving from a cloud sync, and the selected vehicle being
             // archived/deleted from another tab.
             .onChange(of: store.activeVehicles) { _, vehicles in
+                // Never re-point an in-flight recording at a different car:
+                // `finalizeTrip()` reads `selectedVehicleID` at save time,
+                // and the selector is disabled while tracking, so silently
+                // reassigning here (e.g. because the user archived the car
+                // they're currently driving from the Vehicles tab) would
+                // file the drive against the wrong vehicle with no way to
+                // correct it in place — and own-car vs company-car is
+                // exactly what decides reimbursement and which report the
+                // trip lands in (round-5 UX review finding).
+                guard !location.isTracking else { return }
                 if selectedVehicleID == nil || !vehicles.contains(where: { $0.id == selectedVehicleID }) {
                     selectedVehicleID = vehicles.first?.id
                 }
