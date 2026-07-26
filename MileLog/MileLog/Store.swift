@@ -29,6 +29,17 @@ final class Store: ObservableObject {
     /// an in-progress auto-detected trip.
     weak var detector: TripDetector?
 
+    /// Set by the app on launch. `DetectionLog` is purely local/on-device
+    /// (never synced to Supabase), but it records raw GPS coordinates,
+    /// vehicle/Bluetooth device names, and per-trip timing/distance for
+    /// whichever account was signed in when each entry was logged — an
+    /// account switch on the same device otherwise leaves the PREVIOUS
+    /// account's driving history sitting there for the NEXT account to
+    /// read in Settings → Detection log (round-8 adversarial review
+    /// finding: the same class of cross-account leak already fixed for
+    /// trips/vehicles/settings, just in a subsystem nothing had checked).
+    weak var detectionLog: DetectionLog?
+
     private let vehiclesURL: URL
     private let tripsURL: URL
     private let settingsURL: URL
@@ -392,6 +403,12 @@ final class Store: ObservableObject {
             trips = []
             settings = UserSettings()
             detector?.disable()
+            // Purely local/on-device, but records raw GPS coordinates and
+            // driving history for whichever account was signed in when
+            // each entry was logged — must not carry over to a different
+            // account on the same device (round-8 adversarial review
+            // finding).
+            detectionLog?.clear()
             save()
         }
         lastSyncedUserID = userID

@@ -17,6 +17,11 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
     /// Set by MileLogApp so the manual recorder refuses to start while
     /// the auto detector has a trip in progress.
     weak var detector: TripDetector?
+    /// Set by MileLogApp so `discardIfTracking()` leaves a trace, matching
+    /// `TripDetector.discardActiveTripForAccountSwitch()`'s explicit
+    /// warning for the same class of event (round-8 adversarial review
+    /// finding — this discard previously left zero record anywhere).
+    weak var detectionLog: DetectionLog?
 
     /// Current battery/accuracy preset. SettingsView calls
     /// `apply(energyMode:)` whenever the user changes the picker.
@@ -84,6 +89,8 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
     /// equivalent at all).
     func discardIfTracking() {
         guard isTracking else { return }
+        detectionLog?.log("Discarding in-progress manual recording — signed-in account changed mid-drive; it can't be safely attributed to either account.",
+                           level: .warning)
         isTracking = false
         manager.stopUpdatingLocation()
         distanceKm = 0

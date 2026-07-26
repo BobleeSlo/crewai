@@ -86,7 +86,22 @@ struct TripEditor: View {
                 }
             }
 
-            ReceiptsSection(tripID: trip.id, receipts: $receipts)
+            // Hidden until the trip is actually saved: `receipts.trip_id`
+            // has a real foreign key to trips(id), and a brand-new trip's
+            // row doesn't exist yet until `onSave`/`store.addTrip` runs —
+            // attaching a receipt from this screen before that would
+            // upload the photo to Storage and then fail the insert every
+            // single time, with a generic error giving no hint why (round-8
+            // adversarial review finding).
+            if isNew {
+                Section {
+                    Text("Save this trip first, then add receipts from the trip's detail screen.")
+                        .font(.footnote)
+                        .foregroundColor(.secondary)
+                }
+            } else {
+                ReceiptsSection(tripID: trip.id, receipts: $receipts)
+            }
 
             Section {
                 LabeledContent("Reimbursement",

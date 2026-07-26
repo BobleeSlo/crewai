@@ -1270,7 +1270,19 @@ final class TripDetector: NSObject, ObservableObject {
             Task { await notifications.sendClassifyNotification(for: trip) }
         }
 
-        // Sync the GPS polyline to Supabase so the trip detail can render the route.
+        // Sync the GPS polyline to Supabase so the trip detail can render
+        // the route. `trip_points.trip_id` has a real foreign key to
+        // trips(id), checked immediately on insert — `store.addTrip`
+        // above already queued its own push of the trip row, but as an
+        // independent, unawaited Task with no ordering guarantee relative
+        // to this one. If the points insert's request happened to complete
+        // first, the FK check fails and the whole polyline is silently and
+        // permanently lost (`try?`, no retry mechanism exists for points,
+        // unlike trips/vehicles). Re-pushing the trip here (harmless —
+        // `pushTrip` upserts) INSIDE this same Task, awaited before the
+        // points push, guarantees the trip row exists first regardless of
+        // how `addTrip`'s own push Task happens to interleave (round-8
+        // adversarial review finding).
         if let supabase = store.supabaseService {
             let dtos = state.points.map {
                 TripPointDTO(
@@ -1280,7 +1292,11 @@ final class TripDetector: NSObject, ObservableObject {
                     speed_kmh: $0.speedKmh, accuracy_m: $0.accuracyM
                 )
             }
-            Task { try? await supabase.pushTripPoints(dtos) }
+            let tripToSync = trip
+            Task {
+                try? await supabase.pushTrip(tripToSync)
+                try? await supabase.pushTripPoints(dtos)
+            }
         }
 
         // Reverse-geocode start/end addresses lazily and patch the saved trip.
