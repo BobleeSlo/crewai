@@ -104,7 +104,14 @@ struct AuthView: View {
         if raw.contains("already registered") || raw.contains("already exists") {
             return "An account with that email already exists — try signing in instead."
         }
-        if raw.contains("password") {
+        // Narrower than a bare "password" match: Supabase's own password
+        // policy (minimum length, breach checks, complexity) is server-
+        // configurable independent of this app's local 6-character check,
+        // so "any error mentioning password" previously produced this same
+        // confidently-wrong explanation for something that might not
+        // actually be a length issue at all (round-3 UX review finding).
+        if raw.contains("password")
+            && (raw.contains("short") || raw.contains("least") || raw.contains("weak") || raw.contains("characters")) {
             return "Password needs to be at least 6 characters."
         }
         if raw.contains("network") || raw.contains("offline") || raw.contains("internet connection") {

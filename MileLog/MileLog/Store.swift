@@ -10,6 +10,15 @@ final class Store: ObservableObject {
     @Published var vehicles: [Vehicle] = []
     @Published var trips: [Trip] = []
     @Published var settings = UserSettings()
+    /// True for the duration of `initialSync`. Previously there was no
+    /// signal anywhere that a sync was in flight — a returning user
+    /// restoring an account with months of history on a new phone, on a
+    /// slow connection, would see TripsListView's cheerful "No trips yet"
+    /// empty state while their actual history was still downloading: a
+    /// confident "you have nothing" where the truth was "still loading,"
+    /// which is genuinely alarming for what's meant to be a defensible tax
+    /// record (round-3 UX review finding).
+    @Published private(set) var isSyncing = false
 
     /// Convenience accessor kept for the existing UI/CSV code.
     var reimbursementRate: Double {
@@ -51,11 +60,24 @@ final class Store: ObservableObject {
         settingsURL = dir.appendingPathComponent("settings.json")
         load()
 
-        // Seed a default vehicle on first launch so the user can record immediately.
-        if vehicles.isEmpty {
-            vehicles = [Vehicle(name: "My car", licensePlate: "", type: .own)]
-            save()
-        }
+        // Previously seeded a placeholder "My car" vehicle whenever local
+        // storage was empty — but that's true not just for a genuinely
+        // new account, but for ANY fresh install/reinstall/new-device
+        // sign-in into an EXISTING account too, since local JSON files
+        // don't exist yet on a new device regardless of how much real
+        // history the account already has in the cloud. initialSync's
+        // sync-then-merge (Store.swift below) pushes local vehicles to
+        // Supabase BEFORE pulling the cloud ones down, so this seed got
+        // permanently written into the user's real cloud vehicle list on
+        // every such sign-in — indistinguishable from a real vehicle, and
+        // able to silently receive the very next trip if the user started
+        // recording before noticing (round-3 UX review finding). There's
+        // no reliable way to tell "new account" apart from "existing
+        // account, new device" from local disk state alone, so the safe
+        // fix is to never guess: VehiclesView's empty state already gives
+        // a genuinely new user a clear, one-tap path to add their own
+        // vehicle (with their own name/plate) instead of a throwaway
+        // placeholder they'd need to rename anyway.
 
         // Lock any trips that have aged past the configured threshold.
         applyAutomaticLocks()
@@ -64,16 +86,22 @@ final class Store: ObservableObject {
     /// Marks any unlocked trip older than `settings.lockAfterDays` as locked.
     /// Locked trips become read-only for mileage / date / vehicle (enforced by
     /// the Postgres trigger as well). Purpose / notes / customer stay editable.
-    func applyAutomaticLocks() {
+    /// Returns how many trips were newly locked, so callers like Settings'
+    /// "Apply locks now" button can actually tell the user what happened —
+    /// previously this compliance-relevant action gave zero outcome
+    /// feedback (round-3 UX review finding).
+    @discardableResult
+    func applyAutomaticLocks() -> Int {
         let cutoff = Date().addingTimeInterval(-Double(settings.lockAfterDays) * 86_400)
-        var changed = false
+        var lockedCount = 0
         for i in trips.indices where !trips[i].isLocked && trips[i].startedAt < cutoff {
             trips[i].isLocked = true
             trips[i].lockedAt = Date()
-            changed = true
+            lockedCount += 1
             push(trips[i])
         }
-        if changed { save() }
+        if lockedCount > 0 { save() }
+        return lockedCount
     }
 
     // MARK: - Lookups
@@ -569,6 +597,13 @@ final class Store: ObservableObject {
         self.supabase = supabase
         syncGeneration += 1
         let myGeneration = syncGeneration
+        isSyncing = true
+        // Only clear the flag if a NEWER call hasn't already superseded
+        // this one — otherwise a stale call's own completion could flip
+        // isSyncing back to false while a genuinely newer sync is still in
+        // flight, the same class of race the syncGeneration guard already
+        // exists to prevent for actual data mutations.
+        defer { if myGeneration == syncGeneration { isSyncing = false } }
 
         guard let userID = try? await supabase.currentUserId(), myGeneration == syncGeneration else { return }
         if let previous = lastSyncedUserID, previous != userID {

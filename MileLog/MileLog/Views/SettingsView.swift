@@ -9,6 +9,7 @@ struct SettingsView: View {
     @EnvironmentObject var location: LocationManager
     @EnvironmentObject var appLock: AppLock
     @State private var exportURL: URL?
+    @State private var lockResultMessage: String?
 
     @State private var homeInput = ""
     @State private var workInput = ""
@@ -136,7 +137,16 @@ struct SettingsView: View {
                 } header: {
                     SectionHeaderLabel(title: "Energy mode", systemImage: "battery.75")
                 } footer: {
-                    Text("Switch presets any time — changes take effect on the next trip start.")
+                    // This used to say "changes take effect on the next
+                    // trip start" — factually wrong. LocationManager.apply
+                    // (energyMode:) mutates the live CLLocationManager
+                    // immediately, and TripDetector re-reads the mode's
+                    // GPS-accuracy threshold live inside its per-fix
+                    // callbacks — switching modes mid-drive immediately
+                    // changes which GPS fixes get accepted into whatever
+                    // trip is currently recording, the opposite of what
+                    // this told the user (round-3 UX review finding).
+                    Text("Switch presets any time — changes apply immediately, even to a trip already in progress.")
                         .font(.caption)
                 }
 
@@ -153,13 +163,26 @@ struct SettingsView: View {
                         .foregroundColor(.secondary)
 
                     Button {
-                        store.applyAutomaticLocks()
+                        // A compliance-relevant action that previously
+                        // acted with zero outcome feedback — the button
+                        // gave no indication of how many trips (if any)
+                        // were actually locked (round-3 UX review finding).
+                        let count = store.applyAutomaticLocks()
+                        lockResultMessage = count == 0
+                            ? "No trips needed locking."
+                            : "Locked \(count) trip\(count == 1 ? "" : "s")."
                     } label: {
                         Label("Apply locks now", systemImage: "lock.fill")
                             .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(.bordered)
                     .tint(.orange)
+
+                    if let lockResultMessage {
+                        Text(lockResultMessage)
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
                 } header: {
                     SectionHeaderLabel(title: "Compliance & locking", systemImage: "lock.shield")
                 }

@@ -14,7 +14,16 @@ struct TripsListView: View {
     var body: some View {
         NavigationStack {
             Group {
-                if store.trips.isEmpty {
+                if store.trips.isEmpty && store.isSyncing {
+                    // A returning user restoring an account with months of
+                    // history on a new phone, on a slow connection, would
+                    // otherwise see the confident "No trips yet" empty
+                    // state below while their actual history was still
+                    // downloading — an alarming false signal for what's
+                    // meant to be a defensible tax record (round-3 UX
+                    // review finding).
+                    syncingState
+                } else if store.trips.isEmpty {
                     emptyState
                 } else {
                     tripList
@@ -69,8 +78,19 @@ struct TripsListView: View {
             titleVisibility: .visible
         ) {
             Button("Delete", role: .destructive) {
-                if let trip = deleteCandidate {
-                    store.deleteTrips([trip], at: IndexSet(integer: 0))
+                // Re-fetch the LIVE trip by id rather than trusting the
+                // snapshot captured at swipe time — `Store.deleteTrips`
+                // refuses to delete a locked trip, but only by checking
+                // whatever `Trip` value it's actually handed. If the trip
+                // crossed the lockAfterDays threshold while this dialog
+                // stayed open (e.g. the app was backgrounded/foregrounded,
+                // re-running applyAutomaticLocks), the stale snapshot still
+                // read isLocked == false, defeating the exact "refuse to
+                // delete a locked trip" guarantee this same confirmation
+                // exists to respect (round-3 UX review finding).
+                if let candidate = deleteCandidate,
+                   let live = store.trips.first(where: { $0.id == candidate.id }) {
+                    store.deleteTrips([live], at: IndexSet(integer: 0))
                 }
                 deleteCandidate = nil
             }
@@ -114,6 +134,20 @@ struct TripsListView: View {
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 32)
             }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(backgroundWash)
+    }
+
+    // MARK: - Syncing state
+
+    private var syncingState: some View {
+        VStack(spacing: 16) {
+            ProgressView()
+                .controlSize(.large)
+            Text("Syncing your trips…")
+                .font(.subheadline)
+                .foregroundColor(.secondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(backgroundWash)

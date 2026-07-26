@@ -19,7 +19,12 @@ struct VehiclesView: View {
     var body: some View {
         NavigationStack {
             Group {
-                if store.activeVehicles.isEmpty && store.archivedVehicles.isEmpty {
+                if store.activeVehicles.isEmpty && store.archivedVehicles.isEmpty && store.isSyncing {
+                    // Same reasoning as TripsListView: a returning user's
+                    // real vehicle list may just still be downloading on a
+                    // new device (round-3 UX review finding).
+                    syncingState
+                } else if store.activeVehicles.isEmpty && store.archivedVehicles.isEmpty {
                     // A brand-new account has zero vehicles, and nothing
                     // else in the app works without at least one: Record's
                     // "Start trip" is silently disabled with no on-screen
@@ -158,6 +163,19 @@ struct VehiclesView: View {
                     .clipShape(Capsule())
             }
             .padding(.top, 4)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    // MARK: - Syncing state
+
+    private var syncingState: some View {
+        VStack(spacing: 16) {
+            ProgressView()
+                .controlSize(.large)
+            Text("Syncing your vehicles…")
+                .font(.subheadline)
+                .foregroundColor(.secondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -482,10 +500,17 @@ struct VehicleEditView: View {
                                                           : AnyShapeStyle(Color.gray.opacity(0.3)))
                             .clipShape(Capsule())
                     }
-                    .disabled(!saveButtonEnabled)
+                    .disabled(!saveButtonEnabled || deletionMessage != nil)
                 }
                 ToolbarItem(placement: .cancellationAction) {
+                    // `.disabled(deletionMessage != nil)` on the Form below
+                    // doesn't reach toolbar content — it's not a descendant
+                    // of the Form in the modifier chain — so Save/Cancel
+                    // stayed tappable during the ~0.9s success-overlay
+                    // window, letting a stray tap prematurely dismiss the
+                    // confirmation message (round-3 UX review finding).
                     Button("Cancel") { dismiss() }
+                        .disabled(deletionMessage != nil)
                 }
             }
             .confirmationDialog(

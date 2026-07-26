@@ -17,6 +17,16 @@ struct ReportSelectionView: View {
     @State private var selected: Set<UUID>
     @State private var result: PDFReporter.Result?
     @State private var generationFailed = false
+    /// `PDFReporter`'s generators are fully synchronous, main-thread Core
+    /// Graphics work — tapping Generate previously gave zero loading
+    /// feedback (no spinner, no button-state change), so a heavier
+    /// logbook could visibly stall the UI with nothing reassuring the
+    /// user anything was happening (round-3 UX review finding). A
+    /// `Task.yield()` before the blocking call lets this state actually
+    /// render first; true background generation isn't attempted here
+    /// since `generate`'s closures can call back into main-actor-isolated
+    /// Store lookups.
+    @State private var isGenerating = false
 
     init(
         title: String,
@@ -107,11 +117,22 @@ struct ReportSelectionView: View {
                 if !candidateTrips.isEmpty { quickFilterMenu }
             }
             ToolbarItem(placement: .confirmationAction) {
-                Button("Generate") {
-                    result = generate(selectedTrips)
-                    generationFailed = (result == nil)
+                Button {
+                    Task {
+                        isGenerating = true
+                        await Task.yield()   // let the spinner actually render first
+                        result = generate(selectedTrips)
+                        generationFailed = (result == nil)
+                        isGenerating = false
+                    }
+                } label: {
+                    if isGenerating {
+                        ProgressView()
+                    } else {
+                        Text("Generate")
+                    }
                 }
-                .disabled(selected.isEmpty)
+                .disabled(selected.isEmpty || isGenerating)
             }
         }
     }
