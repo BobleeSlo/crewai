@@ -27,15 +27,23 @@ struct TripEditor: View {
     /// of vehicle type (round-10 adversarial review finding).
     private var isOwnCarTrip: Bool { store.vehicle(trip.vehicleID)?.type == .own }
 
-    /// Active vehicles, plus the trip's own vehicle even if it's since been
-    /// archived — otherwise the Picker below would show no matching option
-    /// for an old trip's now-archived vehicle.
+    /// ALL vehicles, active or archived — not just `store.activeVehicles`
+    /// plus whichever one happens to be currently selected. This screen's
+    /// whole purpose is correcting a mis-attributed vehicle, and the
+    /// CORRECT one may well be exactly the one that's since been archived
+    /// (TripDetector's own auto-detect fallback only ever guesses among
+    /// *active* vehicles, so "the guess is active but the real one is
+    /// archived" is precisely the case this feature exists to fix) — a
+    /// list built from `trip.vehicleID` would never offer that archived
+    /// vehicle unless it already happened to be the (wrong) current
+    /// assignment, and would silently drop it from the list the moment the
+    /// user picked something else, with no way back short of discarding
+    /// the screen (round-17 adversarial review finding).
     private var vehicleOptions: [Vehicle] {
-        var options = store.activeVehicles
-        if let current = store.vehicle(trip.vehicleID), !options.contains(where: { $0.id == current.id }) {
-            options.append(current)
+        store.vehicles.sorted { lhs, rhs in
+            if lhs.isActive != rhs.isActive { return lhs.isActive && !rhs.isActive }
+            return lhs.name < rhs.name
         }
-        return options
     }
 
     var body: some View {
@@ -82,7 +90,7 @@ struct TripEditor: View {
             Section("Vehicle") {
                 Picker("Vehicle", selection: $trip.vehicleID) {
                     ForEach(vehicleOptions) { vehicle in
-                        Text(vehicle.name).tag(vehicle.id)
+                        Text(vehicle.isActive ? vehicle.name : "\(vehicle.name) (archived)").tag(vehicle.id)
                     }
                 }
                 .disabled(isLocked)

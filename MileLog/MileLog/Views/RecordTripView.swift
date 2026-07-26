@@ -338,6 +338,18 @@ struct RecordTripView: View {
         let startedAt = location.startedAt
         let distanceKm = location.distanceKm
         let endCoord = endLocation?.coordinate
+        // The actual last GPS fix's own timestamp, not "whenever the
+        // reverse-geocode calls below happen to finish" — CLGeocoder has
+        // no timeout and can stall for the same tunnel/dead-zone conditions
+        // that are common right at a trip's end (e.g. pulling into an
+        // underground garage), which would otherwise skew every manually-
+        // recorded trip's official end time later than when the drive
+        // actually ended, misrepresenting the record (day grouping, the
+        // lockAfterDays cutoff, potni nalog arrival times) for no reason
+        // (round-17 adversarial review finding). TripDetector's own
+        // endTrip already captures its end timestamp synchronously before
+        // any async work for the identical reason.
+        let realEndedAt = endLocation?.timestamp ?? Date()
 
         let startAddress = await location.reverseGeocode(startLocation)
         let endAddress = await location.reverseGeocode(endLocation)
@@ -351,7 +363,7 @@ struct RecordTripView: View {
             purpose: "",
             customerName: suggestedCustomer,
             startedAt: startedAt ?? Date(),
-            endedAt: Date(),
+            endedAt: realEndedAt,
             startAddress: startAddress,
             endAddress: endAddress,
             distanceKm: distanceKm,
