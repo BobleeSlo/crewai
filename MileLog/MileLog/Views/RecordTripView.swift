@@ -322,9 +322,25 @@ struct RecordTripView: View {
 
     private func finalizeTrip() async {
         guard let vehicleID = selectedVehicleID else { return }
-        let startAddress = await location.reverseGeocode(location.startLocation)
-        let endAddress = await location.reverseGeocode(location.endLocation)
-        let endCoord = location.endLocation?.coordinate
+        // Snapshot everything from `location` BEFORE the awaits below.
+        // reverseGeocode has no timeout, and if the user taps "Start trip"
+        // again during that window (isTracking already flipped false by
+        // stop(), so the button is immediately tappable), LocationManager.
+        // start() resets distanceKm/startedAt/startLocation/endLocation for
+        // the NEW recording. Reading those fields only after the awaits
+        // previously let a fresh Start silently pair THIS trip's
+        // just-resolved addresses with the NEW recording's zeroed
+        // distance/time/coordinates — corrupting the finished drive's
+        // record with no error shown anywhere (round-16 adversarial review
+        // finding).
+        let startLocation = location.startLocation
+        let endLocation = location.endLocation
+        let startedAt = location.startedAt
+        let distanceKm = location.distanceKm
+        let endCoord = endLocation?.coordinate
+
+        let startAddress = await location.reverseGeocode(startLocation)
+        let endAddress = await location.reverseGeocode(endLocation)
 
         // Auto-fill customer from past trips near this destination.
         let suggestedCustomer = CustomerSuggester.suggest(near: endCoord, in: store.trips) ?? ""
@@ -334,16 +350,16 @@ struct RecordTripView: View {
             type: .business,
             purpose: "",
             customerName: suggestedCustomer,
-            startedAt: location.startedAt ?? Date(),
+            startedAt: startedAt ?? Date(),
             endedAt: Date(),
             startAddress: startAddress,
             endAddress: endAddress,
-            distanceKm: location.distanceKm,
+            distanceKm: distanceKm,
             notes: "",
             isLocked: false
         )
-        trip.startLat = location.startLocation?.coordinate.latitude
-        trip.startLng = location.startLocation?.coordinate.longitude
+        trip.startLat = startLocation?.coordinate.latitude
+        trip.startLng = startLocation?.coordinate.longitude
         trip.endLat = endCoord?.latitude
         trip.endLng = endCoord?.longitude
         tripToClassify = trip

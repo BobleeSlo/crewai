@@ -210,6 +210,14 @@ final class Store: ObservableObject {
             // snapshot path (round-12 adversarial review finding).
             merged.distanceKm = trip.distanceKm
             merged.type = trip.type
+            // Lets TripEditor's Vehicle picker (round-16 addition) actually
+            // take effect — auto-detection's Bluetooth-fallback path can
+            // occasionally guess the wrong vehicle, and until now there was
+            // no way to correct it. Same protection as type/distance:
+            // immutable once locked, and gated on the same re-end check so
+            // a stale screen can't silently misattribute a trip that was
+            // resumed/re-ended in the meantime.
+            merged.vehicleID = trip.vehicleID
         }
         trips[idx] = merged
         save()

@@ -210,13 +210,34 @@ drop policy if exists own_customers on customers;
 create policy own_customers on customers
   for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
 
+-- with check also verifies that vehicle_id/customer_id actually belong to
+-- the same account, not just that the trip row itself is tagged with the
+-- caller's own user_id — own_points already did this for trip_points, but
+-- own_trips/own_receipts/own_audit* didn't, letting an authenticated user
+-- write a row of their OWN that references another account's vehicle/
+-- trip/customer by guessed id (round-16 adversarial review finding). Only
+-- with check needs this (not using): user_id already correctly scopes
+-- which rows are visible/updatable at all.
 drop policy if exists own_trips on trips;
 create policy own_trips on trips
-  for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+  for all
+  using (auth.uid() = user_id)
+  with check (
+    auth.uid() = user_id
+    and exists (select 1 from vehicles v where v.id = trips.vehicle_id and v.user_id = auth.uid())
+    and (trips.customer_id is null
+         or exists (select 1 from customers c where c.id = trips.customer_id and c.user_id = auth.uid()))
+  );
 
 drop policy if exists own_receipts on receipts;
 create policy own_receipts on receipts
-  for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+  for all
+  using (auth.uid() = user_id)
+  with check (
+    auth.uid() = user_id
+    and (receipts.trip_id is null
+         or exists (select 1 from trips t where t.id = receipts.trip_id and t.user_id = auth.uid()))
+  );
 
 drop policy if exists own_points on trip_points;
 create policy own_points on trip_points
@@ -234,4 +255,8 @@ create policy own_audit on trip_audit_log
 -- promises ("recorded in the audit log") never actually persisted anything.
 drop policy if exists own_audit_insert on trip_audit_log;
 create policy own_audit_insert on trip_audit_log
-  for insert with check (auth.uid() = user_id);
+  for insert
+  with check (
+    auth.uid() = user_id
+    and exists (select 1 from trips t where t.id = trip_audit_log.trip_id and t.user_id = auth.uid())
+  );

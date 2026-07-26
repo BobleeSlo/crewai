@@ -27,6 +27,17 @@ struct TripEditor: View {
     /// of vehicle type (round-10 adversarial review finding).
     private var isOwnCarTrip: Bool { store.vehicle(trip.vehicleID)?.type == .own }
 
+    /// Active vehicles, plus the trip's own vehicle even if it's since been
+    /// archived — otherwise the Picker below would show no matching option
+    /// for an old trip's now-archived vehicle.
+    private var vehicleOptions: [Vehicle] {
+        var options = store.activeVehicles
+        if let current = store.vehicle(trip.vehicleID), !options.contains(where: { $0.id == current.id }) {
+            options.append(current)
+        }
+        return options
+    }
+
     var body: some View {
         Form {
             if isLocked {
@@ -66,6 +77,30 @@ struct TripEditor: View {
                 // editable on an already-reported, locked trip (round-12
                 // adversarial review finding).
                 .disabled(isLocked)
+            }
+
+            Section("Vehicle") {
+                Picker("Vehicle", selection: $trip.vehicleID) {
+                    ForEach(vehicleOptions) { vehicle in
+                        Text(vehicle.name).tag(vehicle.id)
+                    }
+                }
+                .disabled(isLocked)
+            } footer: {
+                // Auto-detection's Bluetooth-fallback path can occasionally
+                // guess the wrong vehicle when no BT pairing is available
+                // (first drive in an unpaired car, a rental, a BT hiccup at
+                // start) — TripDetector logs a "verify this trip's vehicle
+                // is correct" warning to the Detection Log when that
+                // happens, but until now there was no way to actually act
+                // on it: this screen had no vehicle control at all, so a
+                // mis-guessed vehicle silently and permanently misattributed
+                // the trip to the wrong reimbursement pool or company-car
+                // logbook (round-16 adversarial review finding).
+                if !isLocked {
+                    Text("Auto-detected trips occasionally guess the wrong vehicle if Bluetooth didn't pair. Correct it here if needed.")
+                        .font(.caption)
+                }
             }
 
             Section("Details") {
