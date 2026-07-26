@@ -4,6 +4,17 @@ import AVFoundation
 import Combine
 
 /// In-progress auto trip kept on disk so it survives the app being killed.
+///
+/// Hand-written Codable: the compiler-synthesized Decodable does NOT apply a
+/// stored property's default value when its key is simply missing from the
+/// JSON — it throws `keyNotFound` regardless (a well-known Swift gotcha; only
+/// Optional-typed properties get an implicit `decodeIfPresent`). `lastSpeedKmh`
+/// and `points` were added in later phases, so a persisted active-trip.json
+/// written by an older build (mid-trip, right when the user updates the app)
+/// would otherwise fail to decode entirely on the first post-update launch —
+/// silently losing that in-progress trip with no trace, the same class of bug
+/// this custom init already protects `Vehicle` and `UserSettings` against
+/// elsewhere in this file (adversarial review finding).
 struct ActiveTripState: Codable {
     var id: UUID
     var vehicleID: UUID
@@ -21,6 +32,48 @@ struct ActiveTripState: Codable {
     /// Most recent GPS speed in km/h — logged for diagnostics only.
     var lastSpeedKmh: Double = 0
     var points: [RecordedPoint] = []
+
+    init(id: UUID, vehicleID: UUID, audioDeviceUID: String? = nil, audioDeviceName: String? = nil,
+        startedAt: Date, startLat: Double, startLng: Double, lastLat: Double, lastLng: Double,
+        distanceKm: Double, lastMovementAt: Date, lastSpeedKmh: Double = 0,
+        points: [RecordedPoint] = []) {
+        self.id = id
+        self.vehicleID = vehicleID
+        self.audioDeviceUID = audioDeviceUID
+        self.audioDeviceName = audioDeviceName
+        self.startedAt = startedAt
+        self.startLat = startLat
+        self.startLng = startLng
+        self.lastLat = lastLat
+        self.lastLng = lastLng
+        self.distanceKm = distanceKm
+        self.lastMovementAt = lastMovementAt
+        self.lastSpeedKmh = lastSpeedKmh
+        self.points = points
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id, vehicleID, audioDeviceUID, audioDeviceName, startedAt
+        case startLat, startLng, lastLat, lastLng, distanceKm, lastMovementAt
+        case lastSpeedKmh, points
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        vehicleID = try c.decode(UUID.self, forKey: .vehicleID)
+        audioDeviceUID = try c.decodeIfPresent(String.self, forKey: .audioDeviceUID)
+        audioDeviceName = try c.decodeIfPresent(String.self, forKey: .audioDeviceName)
+        startedAt = try c.decode(Date.self, forKey: .startedAt)
+        startLat = try c.decode(Double.self, forKey: .startLat)
+        startLng = try c.decode(Double.self, forKey: .startLng)
+        lastLat = try c.decode(Double.self, forKey: .lastLat)
+        lastLng = try c.decode(Double.self, forKey: .lastLng)
+        distanceKm = try c.decode(Double.self, forKey: .distanceKm)
+        lastMovementAt = try c.decode(Date.self, forKey: .lastMovementAt)
+        lastSpeedKmh = try c.decodeIfPresent(Double.self, forKey: .lastSpeedKmh) ?? 0
+        points = try c.decodeIfPresent([RecordedPoint].self, forKey: .points) ?? []
+    }
 }
 
 struct RecordedPoint: Codable {
@@ -59,8 +112,13 @@ final class TripDetector: NSObject, ObservableObject {
 
     private let manager = CLLocationManager()
     private let motion = MotionVerifier()
-    private unowned let store: Store
-    private unowned let log: DetectionLog
+    // Plain strong references, not unowned/weak: neither Store nor
+    // DetectionLog holds a reference back to TripDetector, so there's no
+    // retain cycle to break — unowned only trades that non-existent cycle
+    // for a real crash-on-dangling-reference risk if the wiring in
+    // MileLogApp.init() ever changes (adversarial review finding).
+    private let store: Store
+    private let log: DetectionLog
     private weak var notifications: NotificationManager?
     /// Set by MileLogApp so the detector can refuse to start while the user
     /// is manually recording a trip with the Start/Stop button.
@@ -322,6 +380,7 @@ final class TripDetector: NSObject, ObservableObject {
         verificationDeadline?.invalidate()
         verificationDeadline = nil
         candidate = nil
+        clearPersistedCandidate()
         NotificationCenter.default.removeObserver(self, name: AVAudioSession.routeChangeNotification, object: nil)
         isEnabled = false
         log.log("Auto-detect OFF.", level: .info)
@@ -454,10 +513,27 @@ final class TripDetector: NSObject, ObservableObject {
             // just during this verification window.
             // Re-read BT now (it may have connected while we were verifying).
             let device = AudioRoute.currentBluetoothOutput()
-            let vehicle = matchVehicle(for: device) ?? fallbackVehicle()
-            guard let vehicle else { return }
+            let confirmedVehicle = matchVehicle(for: device)
+            let vehicle = confirmedVehicle ?? fallbackVehicle()
+            guard let vehicle else {
+                log.log("Verification passed but no vehicle is registered at all — trip dropped.", level: .error)
+                return
+            }
+            // allowMerge is disabled whenever the vehicle is only a GUESS
+            // (fallbackVehicle picks "whichever vehicle was most recently
+            // driven", which is exactly wrong when it's wrong: a car with no
+            // reliable BT pairing driven right after a different, confirmed
+            // vehicle would otherwise get its own trip silently merged INTO
+            // that other vehicle's just-ended trip — extending its distance
+            // and back-dating its start across what was actually a totally
+            // separate drive in a totally different vehicle. Confirmed vs.
+            // fallback identification must never carry equal weight for a
+            // decision this consequential (adversarial review finding).
+            // The trip still starts (with the best guess available), it
+            // just can't silently absorb someone else's confirmed trip.
             commitTripStart(at: c.startLocation, startedAt: c.startedAt,
-                            vehicle: vehicle, device: device)
+                            vehicle: vehicle, device: device,
+                            allowMerge: confirmedVehicle != nil)
         } else {
             log.log(String(format: "Verification FAILED: max %.1f km/h, distance %.0f m, automotive=%@, non-car=%@ — discarding.",
                            c.maxSpeedKmh,
@@ -605,6 +681,18 @@ final class TripDetector: NSObject, ObservableObject {
                 // relaunchRecoveryMinGapMinutes filters for gaps clearly
                 // beyond what a real stop should ever produce.
                 if isPostRelaunch, stationaryMin >= relaunchRecoveryMinGapMinutes {
+                    // This is a single slot, not a queue — if an earlier
+                    // reclaim opportunity is still within its own window and
+                    // hasn't been consumed yet, overwriting it here silently
+                    // forfeits it. Rare (requires two distinct trips each
+                    // getting relaunch-interrupted within overlapping
+                    // windows) but worth a log line rather than silence
+                    // (adversarial review finding).
+                    if let stale = relaunchRecoveryContext,
+                       Date().timeIntervalSince(stale.endedAt) < relaunchRecoveryWindowMinutes * 60 {
+                        log.log("Overwriting a still-valid, unconsumed relaunch-recovery context (vehicle \(store.vehicleName(stale.vehicleID))) — its reclaim window is now forfeited.",
+                                level: .warning)
+                    }
                     relaunchRecoveryContext = (tripID: trip.id, vehicleID: trip.vehicleID, endedAt: trip.lastMovementAt)
                     persistRelaunchRecoveryContext()
                     log.log("This closure followed an app relaunch, not a live observation — flagged for possible reclaim if driving resumes shortly.",
@@ -745,10 +833,17 @@ final class TripDetector: NSObject, ObservableObject {
                             vehicle: Vehicle, device: BluetoothAudioDevice?) {
         store.trips.removeAll { $0.id == lastTrip.id }
         store.save()
-        if let supabase = store.supabaseService {
-            let id = lastTrip.id
-            Task { try? await supabase.deleteTrip(id: id) }
-        }
+        // Deliberately NOT deleting the Supabase row here (dropped after
+        // adversarial review). endTrip's own reverse-geocode Task finishes
+        // asynchronously and later calls store.updateTrip for this same
+        // trip id — an unawaited delete racing against that unawaited
+        // update, with no ordering guarantee between the two independent
+        // network calls, could let the update's upsert resurrect the row
+        // AFTER the delete completed. Simply leaving the old row in place
+        // is safe: distanceKm only ever grows, so whenever this resumed
+        // trip truly ends, endTrip's normal pushTrip (upsert, same id)
+        // naturally overwrites it with the final, correct data — no delete
+        // needed to get there, and no race to have in the first place.
 
         // Restore the ORIGINAL trip's start point, not the pause location.
         // Getting this wrong silently corrupts TripClassifier's home/work
@@ -1170,17 +1265,27 @@ final class TripDetector: NSObject, ObservableObject {
         guard let trip = activeTrip else { return }
         guard force || Date().timeIntervalSince(lastPersistAt) >= persistThrottleSeconds else { return }
         lastPersistAt = Date()
-        try? JSONEncoder().encode(trip).write(to: activeTripURL)
+        try? JSONEncoder().encode(trip).write(to: activeTripURL, options: .atomic)
     }
 
     private func clearPersistedActiveTrip() {
         try? FileManager.default.removeItem(at: activeTripURL)
     }
 
+    /// NOT a real crash-recovery mechanism — only `startedAt` is persisted,
+    /// and `restoreActiveTripIfAny()` never rehydrates `self.candidate` from
+    /// it. Its only purpose is letting the next launch recognize and discard
+    /// a candidate that's gone stale because the app was killed mid-
+    /// verification (see restoreActiveTripIfAny's stale-cleanup step). A
+    /// kill during the ~90s verification window simply loses that partial
+    /// verification; the drive gets picked up fresh on the next significant-
+    /// location wake instead (adversarial review finding — flagged as
+    /// acceptable given the narrow window, but worth being honest about in
+    /// this comment rather than implying full resurrection).
     private func persistCandidate() {
         guard let c = candidate else { return }
         let p = PersistedCandidate(startedAt: c.startedAt)
-        try? JSONEncoder().encode(p).write(to: candidateURL)
+        try? JSONEncoder().encode(p).write(to: candidateURL, options: .atomic)
     }
 
     private func clearPersistedCandidate() {
@@ -1206,7 +1311,7 @@ final class TripDetector: NSObject, ObservableObject {
     private func persistRelaunchRecoveryContext() {
         guard let ctx = relaunchRecoveryContext else { return }
         let p = PersistedRelaunchRecovery(tripID: ctx.tripID, vehicleID: ctx.vehicleID, endedAt: ctx.endedAt)
-        try? JSONEncoder().encode(p).write(to: relaunchRecoveryURL)
+        try? JSONEncoder().encode(p).write(to: relaunchRecoveryURL, options: .atomic)
     }
 
     private func clearPersistedRelaunchRecoveryContext() {
@@ -1247,10 +1352,24 @@ final class TripDetector: NSObject, ObservableObject {
 
         // 3. Restore in-progress trip and resume GPS + audit so the trip's
         //    end (stationary timeout) can still be detected.
-        guard let data = try? Data(contentsOf: activeTripURL),
-              let trip = try? JSONDecoder().decode(ActiveTripState.self, from: data) else { return }
+        guard let data = try? Data(contentsOf: activeTripURL) else { return }
+        guard let trip = try? JSONDecoder().decode(ActiveTripState.self, from: data) else {
+            log.log("Found active-trip.json but failed to decode it — an in-progress trip may have been lost.", level: .error)
+            return
+        }
         activeTrip = trip
         log.log("Restored in-progress trip after relaunch; resumed GPS and audit.", level: .info)
+
+        // CoreMotion must also restart here, not just GPS — it's a freshly
+        // constructed MotionVerifier this launch (isMonitoring/lastAutomotive-
+        // ActivityAt reset to their initial nil/false state), and it's
+        // otherwise only ever started from commitTripStart(), which a
+        // restored trip never passes through. Without this, the GPS-blackout
+        // override in auditActiveTrip() can never fire for the rest of this
+        // process's life — silently disabling rule 3's protection for
+        // exactly the trips (already interrupted once) most likely to need
+        // it again (adversarial review finding).
+        if motion.isAvailable { motion.start() }
 
         manager.allowsBackgroundLocationUpdates = true
         store.settings.energyMode.apply(to: manager)

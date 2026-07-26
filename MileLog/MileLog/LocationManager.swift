@@ -7,6 +7,7 @@ import Combine
 /// MVP behaviour: the user taps Start/Stop and distance is measured while the app
 /// is in use. Fully automatic background trip detection (significant-location /
 /// visit monitoring) is a later phase — see README.
+@MainActor
 final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
 
     @Published var isTracking = false
@@ -73,30 +74,38 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
     }
 
     // MARK: - CLLocationManagerDelegate
-    // Delegate callbacks arrive on the main run loop (manager created on main thread),
-    // so it is safe to mutate @Published properties here.
+    // Same nonisolated + explicit MainActor-hop pattern as TripDetector's
+    // delegate conformance, rather than relying on CoreLocation's
+    // undocumented-in-Swift "callbacks land on the manager's creation
+    // thread" behavior plus implicit global-actor-isolated conformance
+    // (adversarial review finding — flagged for consistency/enforcement).
 
-    func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
-        for loc in locations {
-            // Skip inaccurate fixes.
-            guard loc.horizontalAccuracy >= 0, loc.horizontalAccuracy < 50 else { continue }
+    nonisolated func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            for loc in locations {
+                // Skip inaccurate fixes.
+                guard loc.horizontalAccuracy >= 0, loc.horizontalAccuracy < 50 else { continue }
 
-            if startLocation == nil { startLocation = loc }
+                if self.startLocation == nil { self.startLocation = loc }
 
-            if let last = lastLocation {
-                let metres = loc.distance(from: last)
-                if metres > 1 { distanceKm += metres / 1000.0 }   // ignore GPS jitter
+                if let last = self.lastLocation {
+                    let metres = loc.distance(from: last)
+                    if metres > 1 { self.distanceKm += metres / 1000.0 }   // ignore GPS jitter
+                }
+                self.lastLocation = loc
             }
-            lastLocation = loc
         }
     }
 
-    func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
+    nonisolated func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
         let status = manager.authorizationStatus
-        authorized = (status == .authorizedWhenInUse || status == .authorizedAlways)
+        Task { @MainActor [weak self] in
+            self?.authorized = (status == .authorizedWhenInUse || status == .authorizedAlways)
+        }
     }
 
-    func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
+    nonisolated func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
         // Non-fatal; updates simply pause. Surfaced silently in the MVP.
     }
 

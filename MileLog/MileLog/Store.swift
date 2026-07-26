@@ -286,7 +286,7 @@ final class Store: ObservableObject {
         let csv = rows.joined(separator: "\n")
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("MileLog-export.csv")
         do {
-            try csv.data(using: .utf8)?.write(to: url)
+            try csv.data(using: .utf8)?.write(to: url, options: .atomic)
             return url
         } catch {
             return nil
@@ -302,12 +302,22 @@ final class Store: ObservableObject {
 
     // MARK: - Persistence
 
+    /// `.atomic` on every write here matters more than it looks: a kill
+    /// mid-write (this app has confirmed, field-documented cases of the
+    /// process being terminated far more often than expected — see
+    /// TripDetector's relaunch-recovery mechanism) can otherwise leave a
+    /// truncated file. `load()` swallows a decode failure with `try?` and
+    /// silently falls back to an empty array — the NEXT save() from any
+    /// future trip/vehicle edit would then permanently overwrite the good
+    /// data with that empty state. `.atomic` writes to a temp file and
+    /// renames, so a kill mid-write leaves the OLD file intact instead of a
+    /// corrupt new one (adversarial review finding).
     func save() {
         let encoder = JSONEncoder()
         encoder.outputFormatting = .prettyPrinted
-        try? encoder.encode(vehicles).write(to: vehiclesURL)
-        try? encoder.encode(trips).write(to: tripsURL)
-        try? encoder.encode(settings).write(to: settingsURL)
+        try? encoder.encode(vehicles).write(to: vehiclesURL, options: .atomic)
+        try? encoder.encode(trips).write(to: tripsURL, options: .atomic)
+        try? encoder.encode(settings).write(to: settingsURL, options: .atomic)
         pushSettings()
     }
 
