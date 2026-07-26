@@ -453,6 +453,24 @@ Tally: 1 Medium (−4) = 100 − 4 = **89.5%** — second-highest score of the l
 
 Round 19's vehicle-lock fix was verified correct on every other axis asked: the 5-field gate in both `VehicleEditView` and `Store.updateVehicle` is evaluated as a single atomic boolean (no partial-field states possible), the DB trigger's `old.id`/column list are correct, and `schema.sql`'s base `vehicles` table now matches migration-007's defaults exactly. Both major sagas (cross-account leak, `updateTrip` merge staleness) re-spot-checked and still closed. Also ruled out `customerName` as a fourth "lock protects trip but not dependency" instance — it's a plain snapshotted string on `Trip`, never a live foreign-key-style lookup — and confirmed `TripClassifier.classify` runs only once at trip-creation time, so editing Home/Work addresses later has no retroactive effect on existing trips.
 
+## Round 21 review: Success Score 81/100
+
+A twenty-first reviewer was tasked with verifying round 20's freshest change in detail — the self-healing push mechanism. It found something important: round 20's fix, built to close a narrow multi-device lock race, reintroduced silent data loss for a far more common trigger — ordinary transient network failures — because neither `TripDTO` nor `VehicleDTO` carries any version/timestamp field that could distinguish "the DB genuinely rejected this" from "the cloud is just stale because our own edit hasn't landed yet."
+
+Tally: 1 Critical (−15), 1 Medium (−4) = 100 − 19 = **81%**
+
+### Critical
+
+1. **Round 20's self-healing push could silently overwrite a legitimate, just-made edit with stale cloud data on an ordinary offline/connectivity hiccup — not just the genuine lock-guard rejection it was built for.** `push(_ trip:)`/`push(_ vehicle:)`'s `catch` block treated every push failure identically: a genuine DB-side `trip_lock_guard`/`vehicle_type_lock_guard` rejection, and a plain network failure where the request never reached the server at all, throw the same way with no discriminating information available client-side. Concretely: a user edits a trip's purpose while signal is momentarily weak (garage, elevator, tunnel — this app's own comments repeatedly cite exactly this kind of condition as routine); the push times out; connectivity returns moments later; the catch block's re-pull succeeds and returns the **pre-edit** cloud row; since it differs from the local copy, the code adopted it as authoritative and overwrote the user's just-typed edit, with only a misleading warning ("likely locked or changed on another device") buried in a debug screen most users never open. Also concretely reachable via `TripDetector`'s own two-step write pattern (initial `addTrip` push, then a later `updateTrip` push from the async reverse-geocode backfill) — a transient failure on the second push could revert a trip's just-resolved addresses back to blank. This is precisely the class of bug round 20 existed to eliminate, just relocated onto a far more common trigger than the narrow multi-device race it targeted. **Fixed**: reverted the auto-adopt-on-failure behavior. `push(_ trip:)`/`push(_ vehicle:)` now never guess — a failed push just logs a `DetectionLog` warning and leaves the local edit untouched, relying on `initialSync`'s existing per-sync retry loop (which re-pushes every local trip/vehicle on every future sync) to eventually succeed once connectivity returns, or keep failing (and logging) if it's a genuine, permanent lock rejection. This trades "fully self-healing" for "never silently loses data," which is the correct trade-off given no reliable way exists to tell the two failure causes apart with the data actually available.
+
+### Medium
+
+2. **The reverted mechanism also removed an unrelated resource-cost risk it had introduced**: every push failure triggered its own full-account `pullTrips()`/`pullVehicles()` call regardless of cause, and since `push()` is fire-and-forget, a burst of failures (e.g. via `applyAutomaticLocks()` looping over several newly-locked trips while offline) could fire that many concurrent, unthrottled full-table pulls. Resolved as a side effect of the Critical fix above, since no pull is triggered on failure anymore.
+
+### Confirmed still closed / correct from prior rounds
+
+Confirmed the parts of round 20's original design that were NOT the problem: the `idx` recomputation happened fresh after each `await` with no stale-index race, and a concurrent delete would have correctly been a no-op rather than resurrecting a removed row — the flaw was specifically the "trust whatever the pull returns" assumption, not the array-indexing mechanics. Both major sagas (cross-account leak, `updateTrip` merge staleness) re-spot-checked and still closed. All round 9-19 fixes (lock guards, staleness alerts, RLS ownership checks, etc.) spot-checked and intact — round 21 confirmed no other file changed since round 20 besides `Store.swift`.
+
 ## What's next
 
-Round 21 is queued next per the user's standing instruction to keep iterating until the score exceeds 95%.
+Round 22 is queued next per the user's standing instruction to keep iterating until the score exceeds 95%.

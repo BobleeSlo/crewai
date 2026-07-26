@@ -651,24 +651,30 @@ final class Store: ObservableObject {
             do {
                 try await supabase.pushTrip(trip)
             } catch {
-                // A DB-side lock guard (trip_lock_guard) can permanently
-                // reject this push if the trip was locked/changed on
-                // another signed-in device this one hasn't seen yet — this
-                // app has no periodic re-sync, only a one-shot sync per
-                // login session, so a lagging device's local view can stay
-                // stale indefinitely. Blindly retrying the same rejected
-                // edit on every future sync would fail forever and the
-                // local copy (and every report generated from it) would
-                // silently diverge from the DB and every other device with
-                // no trace (round-20 adversarial review finding). Re-pull
-                // the authoritative row and adopt it instead of leaving the
-                // rejected local edit in place.
-                guard let refreshed = (try? await supabase.pullTrips())?.first(where: { $0.id == trip.id }),
-                      let idx = trips.firstIndex(where: { $0.id == refreshed.id }),
-                      trips[idx] != refreshed else { return }
-                trips[idx] = refreshed
-                save()
-                detectionLog?.log("A trip edit was rejected — likely locked or changed on another device — and was reverted to the synced version.",
+                // Round 20 reacted to a rejected push by pulling the
+                // authoritative row and overwriting local state if it
+                // differed — but pushTrip throws identically for a genuine
+                // DB-side rejection (trip_lock_guard) AND for a plain
+                // transient network failure, and neither TripDTO nor
+                // VehicleDTO carries any updated_at/version field to tell
+                // the two apart. On an ordinary offline edit, the push
+                // never reaches the server at all; if connectivity returns
+                // a moment later, the pull would succeed and return the
+                // STALE pre-edit cloud row, silently overwriting the
+                // user's just-typed edit with older data — exactly the
+                // silent-loss failure this mechanism was built to prevent,
+                // just relocated onto ordinary connectivity hiccups
+                // instead of the narrow multi-device lock race it was
+                // designed for (round-21 adversarial review finding).
+                // Without a reliable way to distinguish the two causes,
+                // never guess: leave the local edit untouched and just log
+                // it, so the failure is traceable instead of fully silent.
+                // The existing per-sync retry loop (initialSync's `for
+                // trip in trips { try? await supabase.pushTrip(trip) }`)
+                // keeps retrying with the local edit intact regardless —
+                // succeeding once connectivity returns, or failing (and
+                // logging) again if it's a genuine, permanent rejection.
+                detectionLog?.log("A trip failed to sync (offline, or rejected if locked/changed on another device) — will keep retrying.",
                                    level: .warning)
             }
         }
@@ -680,18 +686,8 @@ final class Store: ObservableObject {
             do {
                 try await supabase.pushVehicle(vehicle)
             } catch {
-                // Same reasoning as push(_ trip:) above: vehicle_type_lock_guard
-                // (migration-016) can permanently reject an identity-field
-                // edit if another device already locked a trip on this
-                // vehicle and this device's local hasLockedTrips check
-                // hasn't caught up yet (round-20 adversarial review
-                // finding, following round 19's new vehicle-identity lock).
-                guard let refreshed = (try? await supabase.pullVehicles())?.first(where: { $0.id == vehicle.id }),
-                      let idx = vehicles.firstIndex(where: { $0.id == refreshed.id }),
-                      vehicles[idx] != refreshed else { return }
-                vehicles[idx] = refreshed
-                save()
-                detectionLog?.log("Vehicle '\(refreshed.name)' edit was rejected — likely locked on another device — and was reverted to the synced version.",
+                // Same reasoning as push(_ trip:) above.
+                detectionLog?.log("Vehicle '\(vehicle.name)' failed to sync (offline, or rejected if locked on another device) — will keep retrying.",
                                    level: .warning)
             }
         }
