@@ -213,6 +213,21 @@ struct SettingsView: View {
                 // MARK: Company car logbook (potni nalog)
                 if !companyVehicles.isEmpty {
                     Section {
+                        TextField("Company name", text: $store.settings.companyName)
+                        TextField("Company address", text: $store.settings.companyAddress)
+                        TextField("Company location (mesto)", text: $store.settings.companyLocation)
+                        TextField("Driver name", text: $store.settings.driverName)
+                        TextField("Koristnik po nalogu", text: $store.settings.tripBeneficiary)
+                        TextField("Na relaciji", text: $store.settings.tripArea)
+
+                        Text("Printed in the potni nalog header. Per-vehicle seat count and vehicle type are set on the vehicle itself.")
+                            .font(.footnote)
+                            .foregroundColor(.secondary)
+                    } header: {
+                        SectionHeaderLabel(title: "Potni nalog details", systemImage: "building.2")
+                    }
+
+                    Section {
                         Picker("Vehicle", selection: $logbookVehicleID) {
                             ForEach(companyVehicles) { v in
                                 Text("\(v.name) \(v.licensePlate.isEmpty ? "" : "· \(v.licensePlate)")")
@@ -332,6 +347,12 @@ struct SettingsView: View {
             // so no onChange handler is needed here.
             .onChange(of: store.settings.stationaryTimeoutMinutes) { store.save() }
             .onChange(of: store.settings.lockAfterDays) { store.save() }
+            .onChange(of: store.settings.companyName) { store.save() }
+            .onChange(of: store.settings.companyAddress) { store.save() }
+            .onChange(of: store.settings.companyLocation) { store.save() }
+            .onChange(of: store.settings.driverName) { store.save() }
+            .onChange(of: store.settings.tripBeneficiary) { store.save() }
+            .onChange(of: store.settings.tripArea) { store.save() }
             .onChange(of: store.settings.energyMode) { _, newMode in
                 store.save()
                 location.apply(energyMode: newMode)
@@ -468,6 +489,7 @@ struct SettingsView: View {
                     PDFReporter.generateCompanyCarLogbook(
                         trips: chosen,
                         vehicle: captured,
+                        settings: store.settings,
                         year: year, month: month
                     )
                 }

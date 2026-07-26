@@ -80,6 +80,10 @@ struct Vehicle: Identifiable, Codable, Hashable {
     /// selectors. Users can restore or permanently delete from the Vehicles list.
     var isActive: Bool = true
 
+    // "Potni nalog" header fields — see PDFReporter.generateCompanyCarLogbook.
+    var seatCount: Int = 5
+    var vehicleTypeDescription: String = "OSEBNI AVTOMOBIL"
+
     init(
         id: UUID = UUID(),
         name: String,
@@ -88,7 +92,9 @@ struct Vehicle: Identifiable, Codable, Hashable {
         bluetoothName: String = "",
         bluetoothUID: String = "",
         defaultTripType: TripType = .business,
-        isActive: Bool = true
+        isActive: Bool = true,
+        seatCount: Int = 5,
+        vehicleTypeDescription: String = "OSEBNI AVTOMOBIL"
     ) {
         self.id = id
         self.name = name
@@ -98,11 +104,14 @@ struct Vehicle: Identifiable, Codable, Hashable {
         self.bluetoothUID = bluetoothUID
         self.defaultTripType = defaultTripType
         self.isActive = isActive
+        self.seatCount = seatCount
+        self.vehicleTypeDescription = vehicleTypeDescription
     }
 
     enum CodingKeys: String, CodingKey {
         case id, name, licensePlate, type
         case bluetoothName, bluetoothUID, defaultTripType, isActive
+        case seatCount, vehicleTypeDescription
     }
 
     init(from decoder: Decoder) throws {
@@ -115,6 +124,8 @@ struct Vehicle: Identifiable, Codable, Hashable {
         bluetoothUID = try c.decodeIfPresent(String.self, forKey: .bluetoothUID) ?? ""
         defaultTripType = try c.decodeIfPresent(TripType.self, forKey: .defaultTripType) ?? .business
         isActive = try c.decodeIfPresent(Bool.self, forKey: .isActive) ?? true
+        seatCount = try c.decodeIfPresent(Int.self, forKey: .seatCount) ?? 5
+        vehicleTypeDescription = try c.decodeIfPresent(String.self, forKey: .vehicleTypeDescription) ?? "OSEBNI AVTOMOBIL"
     }
 }
 
@@ -249,6 +260,18 @@ struct UserSettings: Codable, Equatable {
     var lockAfterDays: Int = 7
     var energyMode: EnergyMode = .balanced
 
+    // Company-car "potni nalog" (Slovenian travel-order logbook) header
+    // fields — see PDFReporter.generateCompanyCarLogbook. tripArea defaults
+    // to the common case (whole of Slovenia) so the report is usable with
+    // zero setup; the rest default empty and are meant to be filled in once
+    // in Settings.
+    var companyName: String = ""
+    var companyAddress: String = ""
+    var companyLocation: String = ""
+    var driverName: String = ""
+    var tripBeneficiary: String = ""
+    var tripArea: String = "Območje RS"
+
     var hasHome: Bool { homeLat != nil && homeLng != nil }
     var hasWork: Bool { workLat != nil && workLng != nil }
 
@@ -264,7 +287,13 @@ struct UserSettings: Codable, Equatable {
         autoDetectEnabled: Bool = false,
         stationaryTimeoutMinutes: Int = 5,
         lockAfterDays: Int = 7,
-        energyMode: EnergyMode = .balanced
+        energyMode: EnergyMode = .balanced,
+        companyName: String = "",
+        companyAddress: String = "",
+        companyLocation: String = "",
+        driverName: String = "",
+        tripBeneficiary: String = "",
+        tripArea: String = "Območje RS"
     ) {
         self.reimbursementRate = reimbursementRate
         self.commuteRate = commuteRate
@@ -278,6 +307,12 @@ struct UserSettings: Codable, Equatable {
         self.stationaryTimeoutMinutes = stationaryTimeoutMinutes
         self.lockAfterDays = lockAfterDays
         self.energyMode = energyMode
+        self.companyName = companyName
+        self.companyAddress = companyAddress
+        self.companyLocation = companyLocation
+        self.driverName = driverName
+        self.tripBeneficiary = tripBeneficiary
+        self.tripArea = tripArea
     }
 
     enum CodingKeys: String, CodingKey {
@@ -285,6 +320,7 @@ struct UserSettings: Codable, Equatable {
         case homeAddress, homeLat, homeLng
         case workAddress, workLat, workLng
         case autoDetectEnabled, stationaryTimeoutMinutes, lockAfterDays, energyMode
+        case companyName, companyAddress, companyLocation, driverName, tripBeneficiary, tripArea
     }
 
     init(from decoder: Decoder) throws {
@@ -301,6 +337,12 @@ struct UserSettings: Codable, Equatable {
         stationaryTimeoutMinutes = try c.decodeIfPresent(Int.self, forKey: .stationaryTimeoutMinutes) ?? 5
         lockAfterDays = try c.decodeIfPresent(Int.self, forKey: .lockAfterDays) ?? 7
         energyMode = try c.decodeIfPresent(EnergyMode.self, forKey: .energyMode) ?? .balanced
+        companyName = try c.decodeIfPresent(String.self, forKey: .companyName) ?? ""
+        companyAddress = try c.decodeIfPresent(String.self, forKey: .companyAddress) ?? ""
+        companyLocation = try c.decodeIfPresent(String.self, forKey: .companyLocation) ?? ""
+        driverName = try c.decodeIfPresent(String.self, forKey: .driverName) ?? ""
+        tripBeneficiary = try c.decodeIfPresent(String.self, forKey: .tripBeneficiary) ?? ""
+        tripArea = try c.decodeIfPresent(String.self, forKey: .tripArea) ?? "Območje RS"
     }
 }
 

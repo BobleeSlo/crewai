@@ -221,6 +221,16 @@ struct VehicleEditView: View {
                         .foregroundColor(.secondary)
                 }
 
+                Section {
+                    TextField("Vrsta in tip vozila", text: $vehicle.vehicleTypeDescription)
+                    Stepper("Število sedežev: \(vehicle.seatCount)", value: $vehicle.seatCount, in: 1...9)
+                } header: {
+                    Text("Potni nalog")
+                } footer: {
+                    Text("Printed in the company-car potni nalog report header.")
+                        .font(.footnote)
+                }
+
                 Section("Car Bluetooth") {
                     if vehicle.bluetoothName.isEmpty {
                         Text("Not paired yet")

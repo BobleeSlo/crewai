@@ -8,9 +8,12 @@ import UIKit
 ///    Filters to vehicles of type .own, splits business vs commute totals,
 ///    omits private trips and any company-car trips.
 ///  • `generateCompanyCarLogbook` — Slovenian "potni nalog" layout for a
-///    chosen company car + month. Auto-fills date / times / from / to / km,
-///    leaves odometer-start, odometer-end and signature columns blank for
-///    handwriting.
+///    chosen company car + month, matching a real reference logbook the
+///    user provided: one row PER CALENDAR DAY (not per trip), with same-day
+///    trips joined into one route/km figure, plus a company/driver/vehicle
+///    header block from `UserSettings` + `Vehicle`. Odometer and signature
+///    fields are left blank for handwriting — the app has no way to know
+///    the physical odometer reading.
 enum PDFReporter {
 
     private static let pageSize = CGSize(width: 595, height: 842)      // A4 @ 72dpi
@@ -160,14 +163,24 @@ enum PDFReporter {
 
     // MARK: - Company car logbook (Slovenian "potni nalog") -----------------
     //
-    // Columns mirror a standard SI paper logbook so the user can transcribe.
-    // | # | Datum | Ura od | Ura do | Od | Do | Namen | km zač. | km kon. | km |
-    // The km-start / km-end columns are intentionally left blank for the
-    // user to fill in by hand from the actual car odometer.
+    // One row PER CALENDAR DAY of the month, not per trip — matches the
+    // user's actual paper/Excel logbook (a real reference file was provided
+    // and checked against): a day with several trips joins their routes
+    // with " / " and sums the distance into one row; a day with none just
+    // shows the date and weekday name. The header block carries
+    // company/driver/vehicle metadata from UserSettings + the chosen
+    // Vehicle. Odometer and signature fields are left blank for handwriting,
+    // matching the rest of this app's paper-logbook philosophy — the app
+    // has no way to know the physical odometer reading.
 
-    private static let logbookColumnWidths: [CGFloat] = [22, 56, 42, 42, 80, 80, 80, 50, 50, 40]
-    private static var logbookColumnTitles: [String] {
-        ["#", "Datum", "Ura od", "Ura do", "Od", "Do", "Namen", "km zač.", "km kon.", "km"]
+    // Relacija gets the lion's share of the width — real multi-trip days can
+    // read like "MS - Gornja Radgona - MS / Murska Sobota - Lek - Murska
+    // Sobota" (confirmed against the user's own reference logbook), and
+    // there's no multi-line cell support in this simple single-line-per-row
+    // renderer.
+    private static let potniNalogColumnWidths: [CGFloat] = [24, 55, 250, 38, 38, 36, 60]
+    private static var potniNalogColumnTitles: [String] {
+        ["Zap.", "Datum", "Relacija od - do", "Odhod", "Prihod", "km", "Dan v tednu"]
     }
 
     /// Generates the potni nalog for the already-filtered `trips`. Caller
@@ -175,49 +188,74 @@ enum PDFReporter {
     static func generateCompanyCarLogbook(
         trips: [Trip],
         vehicle: Vehicle,
+        settings: UserSettings,
         year: Int,
         month: Int
     ) -> Result? {
-        let monthly = trips.sorted { $0.startedAt < $1.startedAt }
+        let cal = Calendar.current
+        guard let firstOfMonth = cal.date(from: DateComponents(year: year, month: month, day: 1)),
+              let dayRange = cal.range(of: .day, in: .month, for: firstOfMonth)
+        else { return nil }
 
+        let monthly = trips.sorted { $0.startedAt < $1.startedAt }
         let totalKm = monthly.reduce(0) { $0 + $1.distanceKm }
         let monthLabel = monthName(year: year, month: month)
+
+        var tripsByDay: [Int: [Trip]] = [:]
+        for trip in monthly {
+            let day = cal.component(.day, from: trip.startedAt)
+            tripsByDay[day, default: []].append(trip)
+        }
+
+        let dayFormatter = DateFormatter()
+        dayFormatter.dateFormat = "dd.MM.yyyy"
+        // Slovenian weekday names regardless of the device's own locale,
+        // matching the reference logbook's "Dan v tednu" column exactly.
+        let weekdayFormatter = DateFormatter()
+        weekdayFormatter.locale = Locale(identifier: "sl_SI")
+        weekdayFormatter.dateFormat = "EEEE"
+        let timeFormatter = DateFormatter()
+        timeFormatter.dateFormat = "HH:mm"
 
         let renderer = UIGraphicsPDFRenderer(bounds: CGRect(origin: .zero, size: pageSize))
         let data = renderer.pdfData { ctx in
             var page = 1
             ctx.beginPage()
-            drawLogbookHeader(vehicle: vehicle, month: monthLabel, totalKm: totalKm, tripCount: monthly.count)
-            var y = headerTopOffset(extra: 32)
-            drawTableHeader(titles: logbookColumnTitles, widths: logbookColumnWidths, at: y)
+            drawPotniNalogHeader(settings: settings, vehicle: vehicle, firstOfMonth: firstOfMonth)
+            var y = headerTopOffset(extra: 96)
+            drawTableHeader(titles: potniNalogColumnTitles, widths: potniNalogColumnWidths, at: y)
             y += headerHeight
 
-            for (index, trip) in monthly.enumerated() {
-                if y + rowHeight > pageSize.height - 120 {       // leave room for signature
-                    drawSignatureBlock(at: pageSize.height - 100)
+            for day in 1...dayRange.count {
+                guard let date = cal.date(byAdding: .day, value: day - 1, to: firstOfMonth) else { continue }
+                if y + rowHeight > pageSize.height - 130 {   // leave room for totals/signature
                     ctx.beginPage()
                     page += 1
                     drawPageFooter(page: page, month: monthLabel)
                     y = margin
-                    drawTableHeader(titles: logbookColumnTitles, widths: logbookColumnWidths, at: y)
+                    drawTableHeader(titles: potniNalogColumnTitles, widths: potniNalogColumnWidths, at: y)
                     y += headerHeight
                 }
-                drawLogbookRow(index: index + 1, trip: trip, at: y, zebra: index.isMultiple(of: 2))
+                let dayTrips = (tripsByDay[day] ?? []).sorted { $0.startedAt < $1.startedAt }
+                drawPotniNalogRow(
+                    day: day, date: date, trips: dayTrips,
+                    dayFormatter: dayFormatter, weekdayFormatter: weekdayFormatter, timeFormatter: timeFormatter,
+                    at: y, zebra: (day - 1).isMultiple(of: 2)
+                )
                 y += rowHeight
             }
 
-            if monthly.isEmpty {
-                let note = String(localized: "No trips recorded for \(monthLabel).")
-                note.draw(at: CGPoint(x: margin, y: y + 8),
-                          withAttributes: [
-                            .font: UIFont.italicSystemFont(ofSize: 11),
-                            .foregroundColor: UIColor.gray
-                          ])
+            y += 14
+            if y + 90 > pageSize.height - margin {
+                ctx.beginPage()
+                page += 1
+                drawPageFooter(page: page, month: monthLabel)
+                y = margin
             }
-            drawSignatureBlock(at: pageSize.height - 100)
+            drawPotniNalogFooter(totalKm: totalKm, at: y)
         }
 
-        let filename = String(format: "MileLog-Logbook-%@-%04d-%02d.pdf",
+        let filename = String(format: "MileLog-PotniNalog-%@-%04d-%02d.pdf",
                               vehicle.licensePlate.isEmpty ? vehicle.name : vehicle.licensePlate,
                               year, month)
             .replacingOccurrences(of: " ", with: "-")
@@ -272,56 +310,56 @@ enum PDFReporter {
         total.draw(at: CGPoint(x: margin, y: margin + 102), withAttributes: totalAttrs)
     }
 
-    private static func drawLogbookHeader(
-        vehicle: Vehicle, month: String, totalKm: Double, tripCount: Int
+    /// Replicates the reference "potni nalog" spreadsheet's header block:
+    /// company name/address/location, transport type, vehicle registration,
+    /// driver name, vehicle type + seat count, beneficiary, and area —
+    /// pulled from `UserSettings` (company/driver/beneficiary/area) and the
+    /// chosen `Vehicle` (registration, type description, seat count).
+    /// "Vrsta prevoza" (transport type) is a fixed "SLUŽBENA POT" — this
+    /// report exists specifically for logging business trips, so there's
+    /// nothing else it would say.
+    private static func drawPotniNalogHeader(
+        settings: UserSettings, vehicle: Vehicle, firstOfMonth: Date
     ) {
         let titleAttrs: [NSAttributedString.Key: Any] = [
-            .font: UIFont.systemFont(ofSize: 22, weight: .bold),
+            .font: UIFont.systemFont(ofSize: 15, weight: .bold),
             .foregroundColor: UIColor.black
         ]
-        let subAttrs: [NSAttributedString.Key: Any] = [
-            .font: UIFont.systemFont(ofSize: 11),
-            .foregroundColor: UIColor.darkGray
-        ]
-        let labelAttrs: [NSAttributedString.Key: Any] = [
-            .font: UIFont.systemFont(ofSize: 11, weight: .semibold),
-            .foregroundColor: UIColor.black
-        ]
-
-        "Potni nalog · \(month)".draw(
-            at: CGPoint(x: margin, y: margin),
-            withAttributes: titleAttrs
-        )
-
-        let vehicleLine = "Vozilo: \(vehicle.name) · Registracija: \(vehicle.licensePlate.isEmpty ? "_______________" : vehicle.licensePlate)"
-        vehicleLine.draw(at: CGPoint(x: margin, y: margin + 30), withAttributes: labelAttrs)
-
-        let summary = String(format: "Število voženj: %d · Skupaj km: %.1f", tripCount, totalKm)
-        summary.draw(at: CGPoint(x: margin, y: margin + 48), withAttributes: subAttrs)
-
-        let stamp = DateFormatter.localizedString(from: Date(), dateStyle: .medium, timeStyle: .short)
-        "Ustvarjeno: \(stamp)".draw(at: CGPoint(x: margin, y: margin + 64), withAttributes: subAttrs)
-    }
-
-    private static func drawSignatureBlock(at y: CGFloat) {
-        let attrs: [NSAttributedString.Key: Any] = [
+        let valueAttrs: [NSAttributedString.Key: Any] = [
             .font: UIFont.systemFont(ofSize: 10),
             .foregroundColor: UIColor.black
         ]
-        let line = UIBezierPath()
-        line.move(to: CGPoint(x: margin, y: y))
-        line.addLine(to: CGPoint(x: margin + 200, y: y))
-        line.move(to: CGPoint(x: pageSize.width - margin - 200, y: y))
-        line.addLine(to: CGPoint(x: pageSize.width - margin, y: y))
-        UIColor.darkGray.setStroke()
-        line.lineWidth = 0.5
-        line.stroke()
+        let placeholder = "_______________"
 
-        "Podpis voznika".draw(at: CGPoint(x: margin, y: y + 4), withAttributes: attrs)
-        "Podpis odgovorne osebe".draw(
-            at: CGPoint(x: pageSize.width - margin - 200, y: y + 4),
-            withAttributes: attrs
-        )
+        let companyName = settings.companyName.isEmpty ? String(localized: "(Company name — set in Settings)") : settings.companyName
+        companyName.draw(at: CGPoint(x: margin, y: margin), withAttributes: titleAttrs)
+        "POTNI NALOG za prevoz oseb".draw(at: CGPoint(x: margin, y: margin + 20), withAttributes: titleAttrs)
+
+        let df = DateFormatter()
+        df.dateFormat = "dd.MM.yyyy"
+        let dateLine = [settings.companyLocation, "datum: \(df.string(from: firstOfMonth))"]
+            .filter { !$0.isEmpty }.joined(separator: ", ")
+        dateLine.draw(at: CGPoint(x: pageSize.width - margin - 180, y: margin), withAttributes: valueAttrs)
+
+        if !settings.companyAddress.isEmpty {
+            settings.companyAddress.draw(at: CGPoint(x: margin, y: margin + 40), withAttributes: valueAttrs)
+        }
+
+        var y = margin + 58
+        func field(_ label: String, _ value: String, x: CGFloat) {
+            "\(label) \(value)".draw(at: CGPoint(x: x, y: y), withAttributes: valueAttrs)
+        }
+        field("Vrsta prevoza:", "SLUŽBENA POT", x: margin)
+        field("Reg. številka:", vehicle.licensePlate.isEmpty ? placeholder : vehicle.licensePlate, x: margin + 280)
+        y += 16
+        field("Priimek in ime voznika:", settings.driverName.isEmpty ? placeholder : settings.driverName, x: margin)
+        y += 16
+        field("Vrsta in tip vozila:", vehicle.vehicleTypeDescription, x: margin)
+        field("Število sedežev:", "\(vehicle.seatCount)", x: margin + 280)
+        y += 16
+        field("Koristnik po nalogu:", settings.tripBeneficiary.isEmpty ? placeholder : settings.tripBeneficiary, x: margin)
+        y += 16
+        field("Na relaciji:", settings.tripArea, x: margin)
     }
 
     private static func headerTopOffset(extra: CGFloat = 0) -> CGFloat {
@@ -390,61 +428,86 @@ enum PDFReporter {
         }
     }
 
-    private static func drawLogbookRow(index: Int, trip: Trip, at y: CGFloat, zebra: Bool) {
+    /// One row per calendar day. `trips` is every trip that started on this
+    /// day (already sorted by start time), possibly empty. Multiple trips
+    /// join their "from - to" routes with " / " and sum into one km figure,
+    /// matching the reference logbook's own convention for a day with
+    /// several separate drives.
+    private static func drawPotniNalogRow(
+        day: Int, date: Date, trips: [Trip],
+        dayFormatter: DateFormatter, weekdayFormatter: DateFormatter, timeFormatter: DateFormatter,
+        at y: CGFloat, zebra: Bool
+    ) {
         if zebra {
             UIColor(white: 0.95, alpha: 1).setFill()
             UIBezierPath(rect: CGRect(x: margin, y: y, width: pageSize.width - 2 * margin, height: rowHeight)).fill()
         }
 
         let cellAttrs: [NSAttributedString.Key: Any] = [
-            .font: UIFont.systemFont(ofSize: 9),
+            .font: UIFont.systemFont(ofSize: 8),
             .foregroundColor: UIColor.black
         ]
-        let df = DateFormatter()
-        df.dateFormat = "dd.MM.yyyy"
-        let tf = DateFormatter()
-        tf.dateFormat = "HH:mm"
 
-        // Namen column: prefer customer name when present, otherwise the
-        // free-text purpose, so the column always carries the most useful label.
-        let namen: String = {
-            if !trip.customerName.isEmpty { return trip.customerName }
-            return trip.purpose
-        }()
+        let relacija = trips.map { trip -> String in
+            let from = trip.startAddress.isEmpty ? "?" : trip.startAddress
+            let to = trip.endAddress.isEmpty ? "?" : trip.endAddress
+            return "\(from) - \(to)"
+        }.joined(separator: " / ")
+
+        let dayKm = trips.reduce(0) { $0 + $1.distanceKm }
+        // Departure of the day's first trip, arrival of its last — the
+        // reference logbook doesn't track exact times per leg on a
+        // multi-trip day either, just a single departure/return pair.
+        let odhod = trips.first.map { timeFormatter.string(from: $0.startedAt) } ?? ""
+        let prihod = trips.last.map { timeFormatter.string(from: $0.endedAt) } ?? ""
 
         let cells = [
-            "\(index)",
-            df.string(from: trip.startedAt),
-            tf.string(from: trip.startedAt),
-            tf.string(from: trip.endedAt),
-            truncate(trip.startAddress, length: 18),
-            truncate(trip.endAddress, length: 18),
-            truncate(namen, length: 18),
-            "",                                              // odometer start — handwritten
-            "",                                              // odometer end   — handwritten
-            String(format: "%.1f", trip.distanceKm)
+            "\(day)",
+            dayFormatter.string(from: date),
+            truncate(relacija, length: 55),
+            odhod,
+            prihod,
+            dayKm > 0 ? String(format: "%.1f", dayKm) : "",
+            weekdayFormatter.string(from: date)
         ]
 
         var x = margin + 4
         for (i, text) in cells.enumerated() {
             text.draw(at: CGPoint(x: x, y: y + 6), withAttributes: cellAttrs)
-            x += logbookColumnWidths[i]
+            x += potniNalogColumnWidths[i]
         }
-
-        // Draw underline in the two blank columns to make handwriting easier.
-        let startX = margin + ownLogbookOdometerOffset()
-        let line = UIBezierPath()
-        line.move(to: CGPoint(x: startX, y: y + 18))
-        line.addLine(to: CGPoint(x: startX + logbookColumnWidths[7] - 6, y: y + 18))
-        line.move(to: CGPoint(x: startX + logbookColumnWidths[7], y: y + 18))
-        line.addLine(to: CGPoint(x: startX + logbookColumnWidths[7] + logbookColumnWidths[8] - 6, y: y + 18))
-        UIColor.gray.setStroke()
-        line.lineWidth = 0.3
-        line.stroke()
     }
 
-    private static func ownLogbookOdometerOffset() -> CGFloat {
-        logbookColumnWidths.prefix(7).reduce(0, +) + 4
+    private static func drawPotniNalogFooter(totalKm: Double, at y: CGFloat) {
+        let totalAttrs: [NSAttributedString.Key: Any] = [
+            .font: UIFont.systemFont(ofSize: 11, weight: .semibold),
+            .foregroundColor: UIColor.black
+        ]
+        let labelAttrs: [NSAttributedString.Key: Any] = [
+            .font: UIFont.systemFont(ofSize: 10),
+            .foregroundColor: UIColor.black
+        ]
+
+        String(format: "SKUPAJ PREVOŽENIH KILOMETROV: %.1f km", totalKm)
+            .draw(at: CGPoint(x: margin, y: y), withAttributes: totalAttrs)
+        "Stanje km števca: _______________".draw(at: CGPoint(x: margin, y: y + 20), withAttributes: labelAttrs)
+        "Razlika v km: _______________".draw(at: CGPoint(x: margin, y: y + 36), withAttributes: labelAttrs)
+
+        let signatureY = y + 66
+        let line = UIBezierPath()
+        line.move(to: CGPoint(x: margin, y: signatureY))
+        line.addLine(to: CGPoint(x: margin + 200, y: signatureY))
+        line.move(to: CGPoint(x: pageSize.width - margin - 200, y: signatureY))
+        line.addLine(to: CGPoint(x: pageSize.width - margin, y: signatureY))
+        UIColor.darkGray.setStroke()
+        line.lineWidth = 0.5
+        line.stroke()
+
+        "Odobril:".draw(at: CGPoint(x: margin, y: signatureY + 4), withAttributes: labelAttrs)
+        "Podpis uporabnika:".draw(
+            at: CGPoint(x: pageSize.width - margin - 200, y: signatureY + 4),
+            withAttributes: labelAttrs
+        )
     }
 
     private static func drawPageFooter(page: Int, month: String) {

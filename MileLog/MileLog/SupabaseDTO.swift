@@ -13,6 +13,8 @@ struct VehicleDTO: Codable {
     var bluetooth_uid: String?
     var default_trip_type: String?
     var is_active: Bool?
+    var seat_count: Int?
+    var vehicle_type_description: String?
 
     init(from v: Vehicle, userId: UUID) {
         id = v.id
@@ -24,6 +26,8 @@ struct VehicleDTO: Codable {
         bluetooth_uid = v.bluetoothUID.isEmpty ? nil : v.bluetoothUID
         default_trip_type = v.defaultTripType.rawValue
         is_active = v.isActive
+        seat_count = v.seatCount
+        vehicle_type_description = v.vehicleTypeDescription
     }
 
     func toVehicle() -> Vehicle {
@@ -35,7 +39,9 @@ struct VehicleDTO: Codable {
             bluetoothName: bluetooth_name ?? "",
             bluetoothUID: bluetooth_uid ?? "",
             defaultTripType: TripType(rawValue: default_trip_type ?? "") ?? .business,
-            isActive: is_active ?? true
+            isActive: is_active ?? true,
+            seatCount: seat_count ?? 5,
+            vehicleTypeDescription: vehicle_type_description ?? "OSEBNI AVTOMOBIL"
         )
     }
 }
@@ -155,6 +161,12 @@ struct UserSettingsDTO: Codable {
     var stationary_timeout_minutes: Int
     var lock_after_days: Int
     var energy_mode: String?
+    var company_name: String?
+    var company_address: String?
+    var company_location: String?
+    var driver_name: String?
+    var trip_beneficiary: String?
+    var trip_area: String?
 
     init(from s: UserSettings, userId: UUID) {
         user_id = userId
@@ -170,6 +182,12 @@ struct UserSettingsDTO: Codable {
         stationary_timeout_minutes = s.stationaryTimeoutMinutes
         lock_after_days = s.lockAfterDays
         energy_mode = s.energyMode.rawValue
+        company_name = s.companyName
+        company_address = s.companyAddress
+        company_location = s.companyLocation
+        driver_name = s.driverName
+        trip_beneficiary = s.tripBeneficiary
+        trip_area = s.tripArea
     }
 
     func toSettings() -> UserSettings {
@@ -185,7 +203,13 @@ struct UserSettingsDTO: Codable {
             autoDetectEnabled: auto_detect_enabled,
             stationaryTimeoutMinutes: stationary_timeout_minutes,
             lockAfterDays: lock_after_days,
-            energyMode: EnergyMode(rawValue: energy_mode ?? "") ?? .balanced
+            energyMode: EnergyMode(rawValue: energy_mode ?? "") ?? .balanced,
+            companyName: company_name ?? "",
+            companyAddress: company_address ?? "",
+            companyLocation: company_location ?? "",
+            driverName: driver_name ?? "",
+            tripBeneficiary: trip_beneficiary ?? "",
+            tripArea: trip_area ?? "Območje RS"
         )
     }
 }
