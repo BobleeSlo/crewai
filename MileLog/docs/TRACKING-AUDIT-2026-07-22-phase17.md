@@ -144,6 +144,27 @@ Tally: 2 Critical (−30), 3 High (−24), 1 Medium (−4) = 100 − 58 = **42%*
 
 The score has moved 35 → 52.5 → 73 → 48.5 → 42 — not a monotonic climb, because each round after the first examined a *different* subsystem the previous rounds hadn't touched (local trip-detection engine → cloud sync's field coverage → classification/GPS-accuracy edge cases → the sync layer's own correctness → the auth/session boundary and RLS policies) and each one found genuine, confirmed bugs in that newly-examined territory rather than the same code regressing. The core `TripDetector` engine itself has been independently re-verified sound by every round since round 1. Given the pattern of new scope surfacing each round, continuing to chase a 95% score by simply running more rounds may keep finding new areas rather than converging — this is a judgment call for the user on whether/how to continue.
 
+**User chose to continue.**
+
+## Round 6 review: Success Score 78/100
+
+A sixth reviewer specifically re-examined round 5's own identity-switch fix for completeness, plus the brand-new potni nalog PDF code (unreviewed until now) and the sign-up flow. All five prior rounds' target fixes held. Found one further Critical in the exact area round 5 fixed — a real edge case that fix didn't cover — plus layout robustness gaps in the new report code.
+
+Tally: 1 Critical (−15), 1 Medium (−4), 2 Low (−3) = 100 − 22 = **78%**
+
+### Critical
+
+1. **A trip active at the exact moment of an account switch still leaked into the new account.** Round 5's fix wiped `vehicles`/`trips`/`settings` and *then* called `detector?.disable()`. But `disable()` routes an active trip through the normal `endTrip()` → `addTrip()` → `push()` pipeline — by the time it ran, `store.supabase` was already the newly-authenticated service, `vehicles`/`trips` were already wiped, so the old trip got classified with a synthetic "Unknown" vehicle and default settings, appended into the now-empty `trips` array, saved to the new account's local files, and pushed to Supabase tagged with the new account's id. The persisted *files* were correctly cleared by `disable()`, but the trip's *data* had already escaped through the normal save/push pipeline before that. **Fixed**: added `TripDetector.discardActiveTripForAccountSwitch()` — discards an in-progress trip without ever calling `endTrip()`/`addTrip()`/pushing it anywhere. `Store.initialSync` now calls this *first*, before touching `vehicles`/`trips`/`settings` or reassigning `self.supabase`; `disable()` still runs afterward for the rest of its teardown (stopping monitoring, clearing any pending verification candidate) and safely no-ops its own `endTrip()` call since `activeTrip` is already nil.
+
+### Medium
+
+2. **Potni nalog header fields had no width safety net.** Table cells are defensively truncated, but the header's `field()` helper just drew label+value with no length cap — a long `vehicle.vehicleTypeDescription` (free text, no limit) drawn at a fixed x-offset could visually run into the "Število sedežev" field on the same row, and a long `companyName` (drawn bold, 15pt) could run into the date line on the right. Both are realistic given neither field has a length limit in its Settings/vehicle-editor TextField. **Fixed**: capped every header value that shares a row with another field (or risks running off the page) via the same `truncate()` helper the table rows already use.
+
+### Low
+
+3. **Inconsistent empty-value placeholder in the header** — `licensePlate`/`driverName`/`tripBeneficiary` fell back to a `"_______________"` placeholder when empty, but `vehicleTypeDescription` and `tripArea` didn't, even though both are freely clearable. **Fixed** — same placeholder now applied to both.
+4. **Deletion tombstones were never pruned on confirmed success**, growing permanently over the app's lifetime even though a non-throwing `try? deleteTrip`/`deleteVehicle` result IS confirmation the delete succeeded (DELETE is idempotent — a row that's already gone doesn't throw either). **Fixed** — a tombstone is now removed the moment its retry doesn't throw.
+
 ## What's next
 
 A fourth, independent review round is in progress to verify these fixes and re-score.

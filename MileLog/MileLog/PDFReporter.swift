@@ -331,7 +331,13 @@ enum PDFReporter {
         ]
         let placeholder = "_______________"
 
-        let companyName = settings.companyName.isEmpty ? String(localized: "(Company name — set in Settings)") : settings.companyName
+        // Capped so a long free-text company name (bold, 15pt, unbounded in
+        // Settings) can't run into the date line drawn on the same row on
+        // the right — `.draw(at:)` doesn't clip or wrap (round-6
+        // adversarial review finding).
+        let companyName = settings.companyName.isEmpty
+            ? String(localized: "(Company name — set in Settings)")
+            : truncate(settings.companyName, length: 35)
         companyName.draw(at: CGPoint(x: margin, y: margin), withAttributes: titleAttrs)
         "POTNI NALOG za prevoz oseb".draw(at: CGPoint(x: margin, y: margin + 20), withAttributes: titleAttrs)
 
@@ -342,24 +348,35 @@ enum PDFReporter {
         dateLine.draw(at: CGPoint(x: pageSize.width - margin - 180, y: margin), withAttributes: valueAttrs)
 
         if !settings.companyAddress.isEmpty {
-            settings.companyAddress.draw(at: CGPoint(x: margin, y: margin + 40), withAttributes: valueAttrs)
+            truncate(settings.companyAddress, length: 70).draw(at: CGPoint(x: margin, y: margin + 40), withAttributes: valueAttrs)
         }
 
         var y = margin + 58
-        func field(_ label: String, _ value: String, x: CGFloat) {
-            "\(label) \(value)".draw(at: CGPoint(x: x, y: y), withAttributes: valueAttrs)
+        // Rows with a second field at a fixed right-hand offset need their
+        // LEFT value length-capped, or a long free-text value (vehicle type
+        // description, in practice — everything else on the right-hand
+        // column is short by nature) can run into it with nothing to stop
+        // the overlap, since `.draw(at:)` doesn't clip or wrap (round-6
+        // adversarial review finding).
+        func field(_ label: String, _ value: String, x: CGFloat, maxValueLength: Int? = nil) {
+            let shown = maxValueLength.map { truncate(value, length: $0) } ?? value
+            "\(label) \(shown)".draw(at: CGPoint(x: x, y: y), withAttributes: valueAttrs)
         }
         field("Vrsta prevoza:", "SLUŽBENA POT", x: margin)
-        field("Reg. številka:", vehicle.licensePlate.isEmpty ? placeholder : vehicle.licensePlate, x: margin + 280)
+        field("Reg. številka:", vehicle.licensePlate.isEmpty ? placeholder : vehicle.licensePlate,
+              x: margin + 280, maxValueLength: 20)
         y += 16
-        field("Priimek in ime voznika:", settings.driverName.isEmpty ? placeholder : settings.driverName, x: margin)
+        field("Priimek in ime voznika:", settings.driverName.isEmpty ? placeholder : settings.driverName,
+              x: margin, maxValueLength: 40)
         y += 16
-        field("Vrsta in tip vozila:", vehicle.vehicleTypeDescription, x: margin)
+        field("Vrsta in tip vozila:", vehicle.vehicleTypeDescription.isEmpty ? placeholder : vehicle.vehicleTypeDescription,
+              x: margin, maxValueLength: 32)
         field("Število sedežev:", "\(vehicle.seatCount)", x: margin + 280)
         y += 16
-        field("Koristnik po nalogu:", settings.tripBeneficiary.isEmpty ? placeholder : settings.tripBeneficiary, x: margin)
+        field("Koristnik po nalogu:", settings.tripBeneficiary.isEmpty ? placeholder : settings.tripBeneficiary,
+              x: margin, maxValueLength: 40)
         y += 16
-        field("Na relaciji:", settings.tripArea, x: margin)
+        field("Na relaciji:", settings.tripArea.isEmpty ? placeholder : settings.tripArea, x: margin, maxValueLength: 60)
     }
 
     private static func headerTopOffset(extra: CGFloat = 0) -> CGFloat {

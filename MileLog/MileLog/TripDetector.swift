@@ -344,6 +344,36 @@ final class TripDetector: NSObject, ObservableObject {
         clearPersistedRelaunchRecoveryContext()
     }
 
+    /// Discards an in-progress trip WITHOUT saving or pushing it anywhere —
+    /// unlike every other trip-ending path, which always calls `endTrip()`
+    /// and therefore always (past the noise threshold) adds it to
+    /// `store.trips` and pushes it to Supabase. Exists specifically for
+    /// `Store.initialSync`'s account-switch handling: a trip active at the
+    /// exact moment the signed-in identity changes cannot be safely
+    /// attributed to either the old or the new account, and routing it
+    /// through `disable()` (which calls `endTrip()`) was found to let such
+    /// a trip's data — and a `pushTrip` call tagged with whatever identity
+    /// is CURRENTLY authenticated — escape into the new account before the
+    /// caller ever got to wipe local state (round-6 adversarial review
+    /// finding: a confirmed cross-account leak surviving specifically for
+    /// this one moment, distinct from the round-5 fix for the steady-state
+    /// case). Call this BEFORE `disable()` and before touching
+    /// `store.trips`/`vehicles`/`settings` or `store.supabaseService` —
+    /// `disable()` afterward safely no-ops its own `endTrip()` call since
+    /// `activeTrip` is already nil, so it still handles the rest of the
+    /// teardown (stopping monitoring, clearing any pending candidate) as
+    /// normal.
+    func discardActiveTripForAccountSwitch() {
+        guard activeTrip != nil else { return }
+        log.log("Discarding in-progress trip — signed-in account changed mid-drive; it can't be safely attributed to either account.",
+                level: .warning)
+        manager.stopUpdatingLocation()
+        motion.stop()
+        stopAuditTimer()
+        activeTrip = nil
+        clearPersistedActiveTrip()
+    }
+
     /// User-initiated stop from the Record-tab banner. Records the elapsed
     /// stationary time (the sole reason auto-stop should or shouldn't have
     /// fired) plus BT status for identification context, so the Detection

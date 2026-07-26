@@ -349,9 +349,15 @@ final class Store: ObservableObject {
         if let previous = lastSyncedUserID, previous != userID {
             // A different account than whatever was last synced on this
             // device — the local state belongs to that previous account,
-            // not this one. Wipe it (and any in-progress auto-detected
-            // trip, which could equally be the wrong account's) before any
-            // push/pull runs, rather than leaking it into the new account.
+            // not this one. Discard any in-progress trip FIRST, before
+            // wiping vehicles/trips/settings or letting anything below
+            // push under the new identity — `disable()` alone was found to
+            // let such a trip's data (and its own pushTrip call, tagged
+            // with whatever identity happens to be authenticated by the
+            // time it runs) escape into the new account, since it routes
+            // through the normal endTrip()/addTrip()/push pipeline (round-6
+            // adversarial review finding).
+            detector?.discardActiveTripForAccountSwitch()
             vehicles = []
             trips = []
             settings = UserSettings()
@@ -360,8 +366,18 @@ final class Store: ObservableObject {
         }
         lastSyncedUserID = userID
 
-        for id in deletedTripIDs    { try? await supabase.deleteTrip(id: id) }
-        for id in deletedVehicleIDs { try? await supabase.deleteVehicle(id: id) }
+        // Prune a tombstone the moment its delete call doesn't throw —
+        // DELETE is idempotent (a row that's already gone, or never
+        // existed, still doesn't throw), so a clean result IS confirmation
+        // it's safe to stop retrying, rather than keeping every tombstone
+        // forever (round-6 adversarial review finding: sync latency would
+        // otherwise grow slowly but permanently over years of use).
+        for id in deletedTripIDs {
+            if (try? await supabase.deleteTrip(id: id)) != nil { deletedTripIDs.remove(id) }
+        }
+        for id in deletedVehicleIDs {
+            if (try? await supabase.deleteVehicle(id: id)) != nil { deletedVehicleIDs.remove(id) }
+        }
 
         for vehicle in vehicles { try? await supabase.pushVehicle(vehicle) }
         for trip in trips       { try? await supabase.pushTrip(trip) }
