@@ -421,7 +421,20 @@ final class Store: ObservableObject {
         var merged = vehicles[idx]
         merged.name = vehicle.name
         merged.licensePlate = vehicle.licensePlate
-        merged.type = vehicle.type
+        // `type` (own vs. company) drives every reimbursement/logbook
+        // classification via a LIVE lookup at every call site (TripEditor,
+        // exportCSV, PDFReporter) — none of them snapshot it per-trip.
+        // Changing it retroactively reclassifies every trip ever driven in
+        // this vehicle, including already-locked ones, bypassing the
+        // trip-level lock entirely with zero audit trail (round-18
+        // adversarial review finding). Frozen the same way distanceKm/
+        // type/vehicleID are frozen on a locked Trip: once ANY trip
+        // referencing this vehicle is locked, its type can no longer
+        // change — enforced here (not just in the UI's `.disabled`) so a
+        // stale VehicleEditView screen can't bypass it either.
+        if !trips.contains(where: { $0.vehicleID == vehicle.id && $0.isLocked }) {
+            merged.type = vehicle.type
+        }
         merged.defaultTripType = vehicle.defaultTripType
         merged.bluetoothName = vehicle.bluetoothName
         merged.bluetoothUID = vehicle.bluetoothUID

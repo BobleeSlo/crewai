@@ -193,6 +193,30 @@ drop trigger if exists trips_lock_delete on trips;
 create trigger trips_lock_delete before delete on trips
   for each row execute function trip_lock_delete_guard();
 
+-- The trip-level lock guards above only protect the trips table itself —
+-- but every reimbursement/logbook computation determines own-car vs.
+-- company-car via a LIVE lookup of the vehicle's own type, not a per-trip
+-- snapshot. Changing a vehicle's type after the fact would retroactively
+-- reclassify every trip ever driven in it, including already-locked ones,
+-- completely bypassing trip_lock_guard's "once reported, immutable"
+-- guarantee for the exact figure it exists to freeze, via a table that
+-- guard was never watching (round-18 adversarial review finding). Frozen
+-- the same way: once any trip referencing this vehicle is locked, its type
+-- can no longer change.
+create or replace function vehicle_type_lock_guard() returns trigger as $$
+begin
+  if new.vehicle_type is distinct from old.vehicle_type
+     and exists (select 1 from trips t where t.vehicle_id = old.id and t.is_locked) then
+    raise exception 'Vehicle type cannot be changed once it has locked trips';
+  end if;
+  return new;
+end;
+$$ language plpgsql;
+
+drop trigger if exists vehicles_type_lock on vehicles;
+create trigger vehicles_type_lock before update on vehicles
+  for each row execute function vehicle_type_lock_guard();
+
 -- ---------- ROW-LEVEL SECURITY ----------
 
 alter table vehicles       enable row level security;

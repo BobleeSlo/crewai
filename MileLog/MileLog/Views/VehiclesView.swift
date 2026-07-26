@@ -195,6 +195,20 @@ struct VehicleEditView: View {
         !vehicle.name.trimmingCharacters(in: .whitespaces).isEmpty
     }
 
+    /// Every reimbursement/logbook computation checks this vehicle's type
+    /// via a LIVE lookup (TripEditor.isOwnCarTrip, Store.exportCSV,
+    /// PDFReporter.ownCarCandidates/companyLogbookCandidates) — none of
+    /// them snapshot it per-trip. Changing "My car" ↔ "Company car" after
+    /// the fact retroactively reclassifies every trip ever driven in this
+    /// vehicle, INCLUDING already-locked ones, completely bypassing the
+    /// trip-level lock's own "once reported, immutable" guarantee with
+    /// zero audit trail (round-18 adversarial review finding). Frozen once
+    /// any trip referencing this vehicle is locked, mirroring the same
+    /// "immutable once reported" philosophy already applied per-trip.
+    private var hasLockedTrips: Bool {
+        store.trips.contains { $0.vehicleID == vehicle.id && $0.isLocked }
+    }
+
     var body: some View {
         NavigationStack {
             Form {
@@ -207,6 +221,12 @@ struct VehicleEditView: View {
                         }
                     }
                     .pickerStyle(.segmented)
+                    .disabled(hasLockedTrips)
+                    if hasLockedTrips {
+                        Text("Can't be changed — this vehicle has locked (already-reported) trips, and its type determines how they're reimbursed.")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
                 }
 
                 Section("Default trip type") {
