@@ -647,12 +647,54 @@ final class Store: ObservableObject {
 
     private func push(_ trip: Trip) {
         guard let supabase else { return }
-        Task { try? await supabase.pushTrip(trip) }
+        Task {
+            do {
+                try await supabase.pushTrip(trip)
+            } catch {
+                // A DB-side lock guard (trip_lock_guard) can permanently
+                // reject this push if the trip was locked/changed on
+                // another signed-in device this one hasn't seen yet — this
+                // app has no periodic re-sync, only a one-shot sync per
+                // login session, so a lagging device's local view can stay
+                // stale indefinitely. Blindly retrying the same rejected
+                // edit on every future sync would fail forever and the
+                // local copy (and every report generated from it) would
+                // silently diverge from the DB and every other device with
+                // no trace (round-20 adversarial review finding). Re-pull
+                // the authoritative row and adopt it instead of leaving the
+                // rejected local edit in place.
+                guard let refreshed = (try? await supabase.pullTrips())?.first(where: { $0.id == trip.id }),
+                      let idx = trips.firstIndex(where: { $0.id == refreshed.id }),
+                      trips[idx] != refreshed else { return }
+                trips[idx] = refreshed
+                save()
+                detectionLog?.log("A trip edit was rejected — likely locked or changed on another device — and was reverted to the synced version.",
+                                   level: .warning)
+            }
+        }
     }
 
     private func push(_ vehicle: Vehicle) {
         guard let supabase else { return }
-        Task { try? await supabase.pushVehicle(vehicle) }
+        Task {
+            do {
+                try await supabase.pushVehicle(vehicle)
+            } catch {
+                // Same reasoning as push(_ trip:) above: vehicle_type_lock_guard
+                // (migration-016) can permanently reject an identity-field
+                // edit if another device already locked a trip on this
+                // vehicle and this device's local hasLockedTrips check
+                // hasn't caught up yet (round-20 adversarial review
+                // finding, following round 19's new vehicle-identity lock).
+                guard let refreshed = (try? await supabase.pullVehicles())?.first(where: { $0.id == vehicle.id }),
+                      let idx = vehicles.firstIndex(where: { $0.id == refreshed.id }),
+                      vehicles[idx] != refreshed else { return }
+                vehicles[idx] = refreshed
+                save()
+                detectionLog?.log("Vehicle '\(refreshed.name)' edit was rejected — likely locked on another device — and was reverted to the synced version.",
+                                   level: .warning)
+            }
+        }
     }
 
     // MARK: - CSV export
