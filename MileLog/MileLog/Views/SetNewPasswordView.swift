@@ -66,10 +66,28 @@ struct SetNewPasswordView: View {
             .navigationTitle("New password")
             .navigationBarTitleDisplayMode(.inline)
             .keyboardDoneToolbar()
-            // Deliberately no Cancel: the recovery session is short-lived,
-            // and dismissing without setting a password would leave the
-            // user signed in via a link they can't re-use, which is more
-            // confusing than finishing the one step they came here for.
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    // There MUST be an exit. `handleRecoveryLink` has
+                    // already established a session and flipped
+                    // `isAuthenticated`, so there's no sign-in screen left
+                    // behind this sheet — and with no Cancel and
+                    // `.interactiveDismissDisabled()`, a failed update (an
+                    // expired or already-used link, which no amount of
+                    // retrying fixes) trapped the user in an undismissable
+                    // modal whose own error copy told them to go somewhere
+                    // they couldn't reach. Only a force-quit escaped it
+                    // (round-7 UX review finding). Signing out on the way
+                    // out returns them to the screen the copy names.
+                    Button("Cancel") {
+                        Task {
+                            await supabase.signOut()
+                            dismiss()
+                        }
+                    }
+                    .disabled(supabase.isWorking)
+                }
+            }
         }
         .interactiveDismissDisabled()
     }
@@ -80,7 +98,11 @@ struct SetNewPasswordView: View {
             try await supabase.updatePassword(password)
             dismiss()
         } catch {
-            errorMessage = "Couldn't set the new password. The reset link may have expired — request a fresh one from the sign-in screen."
+            // Doesn't blame link expiry outright: this same path catches a
+            // server-side password-policy rejection and a plain network
+            // failure, neither of which is helped by requesting a new link
+            // (round-7 UX review finding).
+            errorMessage = "Couldn't set the new password. Check your connection and try again — or tap Cancel and request a fresh reset link from the sign-in screen."
         }
     }
 }

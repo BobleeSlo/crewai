@@ -28,6 +28,25 @@ final class Store: ObservableObject {
     @Published private(set) var tripsSyncFailed = false
     @Published private(set) var vehiclesSyncFailed = false
 
+    /// True only when a settings file was actually decoded from disk — i.e.
+    /// this device has real, user-owned settings rather than the untouched
+    /// defaults of a fresh install.
+    ///
+    /// Without this, `initialSync` pushed local settings BEFORE pulling, so
+    /// signing into an existing account on a NEW device upserted all
+    /// eighteen default columns straight over that account's real
+    /// `user_settings` row — wiping reimbursement rates, home/work
+    /// coordinates, the whole Potni Nalog company header, and
+    /// `autoDetectEnabled` — then pulled back exactly what it had just
+    /// written and saved it locally. Trips and vehicles restored correctly
+    /// around it (their push loops are no-ops on an empty local store),
+    /// making the restore look successful while every future report
+    /// silently printed wrong € amounts. Unrecoverable, because the cloud
+    /// row was destroyed (round-7 UX review finding). Round 3 removed the
+    /// vehicle auto-seed for exactly this reason; settings is the single
+    /// always-present object that had no equivalent protection.
+    private var hasLocalSettings = false
+
     /// Backs pull-to-refresh and the "Try again" buttons. Deliberately does
     /// only the DOWNLOAD half, not a full bidirectional resync: routing
     /// this through `initialSync` meant every pull-to-refresh first
@@ -648,7 +667,21 @@ final class Store: ObservableObject {
         // exists to prevent for actual data mutations.
         defer { if myGeneration == syncGeneration { isSyncing = false } }
 
-        guard let userID = try? await supabase.currentUserId(), myGeneration == syncGeneration else { return }
+        guard let userID = try? await supabase.currentUserId(), myGeneration == syncGeneration else {
+            // Mark BOTH collections failed on this path. Returning silently
+            // left the flags at their previous values (normally false), so
+            // a sync that died at the very first hurdle rendered the
+            // confident "No trips yet — record your first trip" empty state
+            // instead of the error state round 5 added for exactly this
+            // (round-7 UX review finding). Only do so if we're still the
+            // current generation — a newer sync is by definition about to
+            // set them itself.
+            if myGeneration == syncGeneration {
+                tripsSyncFailed = true
+                vehiclesSyncFailed = true
+            }
+            return
+        }
         if let previous = lastSyncedUserID, previous != userID {
             // A different account than whatever was last synced on this
             // device — the local state belongs to that previous account,
@@ -671,7 +704,11 @@ final class Store: ObservableObject {
             // account on the same device (round-8 adversarial review
             // finding).
             detectionLog?.clear()
-            save()
+            // These are now the INCOMING account's defaults, not settings
+            // this device owns — so don't let the next sync (or `save()`'s
+            // own push) assert them over that account's real cloud row.
+            hasLocalSettings = false
+            save(pushingSettings: false)
         }
         lastSyncedUserID = userID
         guard myGeneration == syncGeneration else { return }
@@ -692,7 +729,13 @@ final class Store: ObservableObject {
 
         for vehicle in vehicles { try? await supabase.pushVehicle(vehicle) }
         for trip in trips       { try? await supabase.pushTrip(trip) }
-        let settingsPushed = (try? await supabase.pushSettings(settings)) != nil
+        // Only assert local settings over the cloud when this device
+        // actually HAS settings of its own (see `hasLocalSettings`). On a
+        // fresh install we hold nothing but defaults and have no business
+        // overwriting the account's real row with them.
+        let settingsPushed = hasLocalSettings
+            ? (try? await supabase.pushSettings(settings)) != nil
+            : false
         guard myGeneration == syncGeneration else { return }
 
         // Track whether the DOWNLOAD half actually worked. Every call here
@@ -738,6 +781,18 @@ final class Store: ObservableObject {
         // happened to fail).
         if settingsPushed, let cloudSettings = try? await supabase.pullSettings() {
             settings = cloudSettings
+            hasLocalSettings = true
+        } else if !hasLocalSettings {
+            // This device has no settings of its own, so the cloud copy is
+            // authoritative — adopt it rather than keeping (and later
+            // pushing) defaults. If the account genuinely has no row yet,
+            // push our defaults once to establish one.
+            if let cloudSettings = try? await supabase.pullSettings() {
+                settings = cloudSettings
+            } else {
+                try? await supabase.pushSettings(settings)
+            }
+            hasLocalSettings = true
         }
         save()
         // Re-arm auto-detect if this account's settings say it should be
@@ -869,13 +924,23 @@ final class Store: ObservableObject {
     /// data with that empty state. `.atomic` writes to a temp file and
     /// renames, so a kill mid-write leaves the OLD file intact instead of a
     /// corrupt new one (adversarial review finding).
-    func save() {
+    /// `pushingSettings: false` is for the one caller that has just RESET
+    /// settings to defaults (the account-switch branch of `initialSync`) —
+    /// pushing there would upsert those defaults over the incoming
+    /// account's real cloud row before the pull that's about to fetch it
+    /// (round-7 UX review finding).
+    func save(pushingSettings: Bool = true) {
         let encoder = JSONEncoder()
         encoder.outputFormatting = .prettyPrinted
         try? encoder.encode(vehicles).write(to: vehiclesURL, options: .atomic)
         try? encoder.encode(trips).write(to: tripsURL, options: .atomic)
         try? encoder.encode(settings).write(to: settingsURL, options: .atomic)
-        pushSettings()
+        if pushingSettings {
+            // A settings file now exists on disk, so this device owns real
+            // settings from here on and may assert them on future syncs.
+            hasLocalSettings = true
+            pushSettings()
+        }
     }
 
     private func pushSettings() {
@@ -894,6 +959,7 @@ final class Store: ObservableObject {
         }
         if let decoded = loadOrPreserveCorrupted(UserSettings.self, url: settingsURL, decoder: decoder) {
             settings = decoded
+            hasLocalSettings = true
         }
     }
 

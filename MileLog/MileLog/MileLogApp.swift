@@ -72,10 +72,18 @@ struct RootView: View {
     /// see `SetNewPasswordView`. Presented over everything else, because
     /// the recovery session it rides on is short-lived.
     @State private var showingSetNewPassword = false
+    @State private var recoveryLinkFailed = false
 
     var body: some View {
         Group {
-            if supabase.isAuthenticated {
+            if !supabase.didResolveInitialAuth {
+                // Neither signed-in nor signed-out yet — showing the
+                // sign-in form here (the old behaviour, since
+                // `isAuthenticated` starts false) made every cold launch
+                // flash the email/password screen (round-7 UX review
+                // finding).
+                launchState
+            } else if supabase.isAuthenticated {
                 RootTabView()
                     .task(id: supabase.userEmail) {
                         await store.initialSync(via: supabase)
@@ -106,10 +114,21 @@ struct RootView: View {
                     try await supabase.handleRecoveryLink(url)
                     showingSetNewPassword = true
                 } catch {
-                    // Expired or already-used link — the user stays on the
-                    // sign-in screen and can request a fresh one.
+                    // Previously an empty catch: the user tapped the link in
+                    // their email, watched MileLog open, and saw the same
+                    // sign-in form with zero acknowledgement — no way to
+                    // tell an expired link from a broken app from a tap
+                    // that didn't register, in the one flow where they're
+                    // already anxious about being locked out (round-7 UX
+                    // review finding).
+                    recoveryLinkFailed = true
                 }
             }
+        }
+        .alert("That reset link didn't work", isPresented: $recoveryLinkFailed) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            Text("It may have expired or already been used. Request a new one with “Forgot password?” below.")
         }
         .sheet(isPresented: $showingSetNewPassword) {
             SetNewPasswordView()
@@ -131,5 +150,19 @@ struct RootView: View {
             // (round-11 adversarial review finding).
             if phase == .active { store.applyAutomaticLocks() }
         }
+    }
+
+    /// Shown for the brief window between launch and the session restore
+    /// resolving. Intentionally minimal — it should read as the app coming
+    /// up, not as a screen the user has to do something about.
+    private var launchState: some View {
+        VStack(spacing: 16) {
+            Image(systemName: "car.fill")
+                .font(.system(size: 44, weight: .light))
+                .foregroundStyle(Theme.brandGradient)
+            ProgressView()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color(.systemBackground))
     }
 }

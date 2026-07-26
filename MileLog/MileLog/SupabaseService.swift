@@ -10,6 +10,13 @@ final class SupabaseService: ObservableObject {
     @Published private(set) var isAuthenticated = false
     @Published private(set) var userEmail: String?
     @Published private(set) var isWorking = false
+    /// False until the launch-time session restore has resolved one way or
+    /// the other. `isAuthenticated` starts `false` and is only corrected by
+    /// a detached Task in `init`, so without this third state every cold
+    /// launch rendered the full email/password form for a frame before
+    /// snapping to the tab bar — a recurring "did I get logged out?" jolt
+    /// on an app people open in a car (round-7 UX review finding).
+    @Published private(set) var didResolveInitialAuth = false
 
     /// Set by the app on launch (weak — these are the non-owning direction,
     /// same pattern as `Store.detector`). Lets `signOut()` discard any
@@ -40,6 +47,7 @@ final class SupabaseService: ObservableObject {
     // MARK: - Auth
 
     func refreshAuth() async {
+        defer { didResolveInitialAuth = true }
         do {
             let session = try await client.auth.session
             isAuthenticated = true
