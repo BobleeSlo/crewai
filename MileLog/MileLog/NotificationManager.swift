@@ -160,6 +160,16 @@ final class NotificationManager: NSObject, ObservableObject, UNUserNotificationC
         }
 
         if let newType {
+            // Checked BEFORE mutating `trip` below: Store.updateTrip's merge
+            // only lets `type` through `if !previous.isLocked` — if this
+            // trip crossed its lockAfterDays threshold while the
+            // notification sat unactioned in Notification Center (they
+            // persist indefinitely until dismissed), the classification
+            // silently never applies. Logging success unconditionally
+            // regardless left that completely untraceable — even the
+            // Detection Log itself would have claimed it worked (round-13
+            // adversarial review finding).
+            let wasLocked = trip.isLocked
             trip.type = newType
             // Marks this trip as human-reviewed so TripDetector's merge/
             // reclaim logic refuses to ever resurrect it as in-progress
@@ -168,7 +178,12 @@ final class NotificationManager: NSObject, ObservableObject, UNUserNotificationC
             // opportunity.
             trip.reviewedAt = Date()
             store.updateTrip(trip)
-            detectionLog?.log("Classified \(idString.prefix(8)) as \(newType.label) via notification")
+            if wasLocked {
+                detectionLog?.log("Classify tap for \(idString.prefix(8)) ignored — trip was locked before the tap was handled; classification not changed.",
+                                   level: .warning)
+            } else {
+                detectionLog?.log("Classified \(idString.prefix(8)) as \(newType.label) via notification")
+            }
         }
         // Default action (UNNotificationDefaultActionIdentifier) → app opens to trips list naturally.
     }

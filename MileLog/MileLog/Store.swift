@@ -160,7 +160,32 @@ final class Store: ObservableObject {
         merged.purpose = trip.purpose
         merged.customerName = trip.customerName
         merged.notes = trip.notes
-        merged.reviewedAt = trip.reviewedAt
+        // Prefer non-nil rather than blindly taking `trip`'s value: this
+        // call site isn't only reached from a user-facing edit screen —
+        // TripDetector.endTrip's own reverse-geocode Task fetches the live
+        // trip, patches its addresses, and calls updateTrip too. If a
+        // stale TripEditor @State (opened before some OTHER edit path —
+        // e.g. a classify notification — already set reviewedAt) saved
+        // afterward, blindly copying its nil would silently un-review the
+        // trip again, and TripDetector.tryMergeWithRecentTrip requires
+        // reviewedAt == nil to treat a trip as mergeable — re-opening an
+        // already-classified trip to being silently merged with unrelated
+        // later driving (round-13 adversarial review finding).
+        merged.reviewedAt = trip.reviewedAt ?? previous.reviewedAt
+        // Addresses are read-only display data in TripEditor (never a
+        // TextField) and only ever meaningfully change via TripDetector's
+        // async reverse-geocode backfill — which calls this same function.
+        // They were missing from this merge's whitelist entirely, silently
+        // dropping every auto-detected trip's resolved From/To address on
+        // that backfill (a straight-up regression from the whitelist
+        // approach itself: it protected TripEditor's user-facing save
+        // while breaking a completely different, legitimate caller the
+        // whitelist never anticipated). Not compliance-relevant data (the
+        // immutable lat/lng already captured it), so always allowed
+        // through regardless of lock status (round-13 adversarial review
+        // finding).
+        merged.startAddress = trip.startAddress
+        merged.endAddress = trip.endAddress
         if !previous.isLocked {
             // `type` directly determines the reimbursement figure the lock
             // exists to freeze (Trip.reimbursement() pays a different rate —
