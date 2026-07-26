@@ -161,6 +161,12 @@ final class NotificationManager: NSObject, ObservableObject, UNUserNotificationC
 
         if let newType {
             trip.type = newType
+            // Marks this trip as human-reviewed so TripDetector's merge/
+            // reclaim logic refuses to ever resurrect it as in-progress
+            // again — see Trip.reviewedAt's doc comment for why silently
+            // doing so would be actively harmful, not just a missed
+            // opportunity.
+            trip.reviewedAt = Date()
             store.updateTrip(trip)
             detectionLog?.log("Classified \(idString.prefix(8)) as \(newType.label) via notification")
         }

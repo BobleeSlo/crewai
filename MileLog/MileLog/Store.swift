@@ -23,6 +23,12 @@ final class Store: ObservableObject {
     /// Read-only access for collaborators (TripDetector pushes GPS points + receipts).
     var supabaseService: SupabaseService? { supabase }
 
+    /// Set by the app on launch (weak — TripDetector already holds a strong
+    /// reference to this Store, so this is the non-owning direction). Lets
+    /// deleteVehicle refuse to hard-delete a vehicle that's the subject of
+    /// an in-progress auto-detected trip.
+    weak var detector: TripDetector?
+
     private let vehiclesURL: URL
     private let tripsURL: URL
     private let settingsURL: URL
@@ -194,7 +200,15 @@ final class Store: ObservableObject {
 
     @discardableResult
     func deleteVehicle(_ vehicle: Vehicle) -> DeletionMode {
+        // A brand-new vehicle with zero COMPLETED trips can still be the
+        // subject of an in-progress auto-detected one (its very first
+        // drive) — `trips` alone wouldn't see that. Hard-deleting it out
+        // from under that trip would leave it pointing at a vehicleID
+        // nothing in store.vehicles resolves to once it ends (TripDetector
+        // falls back to an ad-hoc, never-persisted "Unknown" vehicle in
+        // that case — adversarial review finding).
         let hasTrips = trips.contains { $0.vehicleID == vehicle.id }
+            || detector?.activeTrip?.vehicleID == vehicle.id
 
         if hasTrips {
             if let idx = vehicles.firstIndex(where: { $0.id == vehicle.id }) {

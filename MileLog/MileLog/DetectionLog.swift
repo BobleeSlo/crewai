@@ -90,6 +90,6 @@ final class DetectionLog: ObservableObject {
     }
 
     private func save() {
-        try? JSONEncoder().encode(entries).write(to: url)
+        try? JSONEncoder().encode(entries).write(to: url, options: .atomic)
     }
 }

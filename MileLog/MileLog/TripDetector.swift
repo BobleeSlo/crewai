@@ -477,6 +477,17 @@ final class TripDetector: NSObject, ObservableObject {
             return
         }
 
+        // Reject invalid/low-quality fixes before trusting them as movement
+        // evidence — a negative accuracy means CoreLocation itself
+        // considers the fix invalid, and a coarse one (multipath in a
+        // garage/urban canyon — exactly the GPS-dead-zone conditions this
+        // file already accounts for elsewhere) can "wander" tens to
+        // hundreds of metres between callbacks, producing a false-positive
+        // automotive-movement confirmation from jitter alone rather than a
+        // real drive (adversarial review finding). Matches the same 50 m
+        // ceiling LocationManager's manual recorder already uses.
+        guard location.horizontalAccuracy >= 0, location.horizontalAccuracy < 50 else { return }
+
         let kmh = max(0, location.speed) * 3.6
         if kmh > c.maxSpeedKmh { c.maxSpeedKmh = kmh }
 
@@ -781,7 +792,12 @@ final class TripDetector: NSObject, ObservableObject {
            // unreachable in practice (relaunchRecoveryWindowMinutes is far
            // smaller than any realistic lockAfterDays), but kept consistent
            // rather than latent (round-2 adversarial review finding).
-           let lastTrip = store.trips.first(where: { $0.id == ctx.tripID && !$0.isLocked }),
+           // reviewedAt == nil matters a lot more here than !isLocked does:
+           // the relaunch-recovery window is up to 90 minutes, plenty of
+           // time for the user to tap the classify notification this trip
+           // got when it closed — reclaiming it after that would discard
+           // their review (adversarial review finding).
+           let lastTrip = store.trips.first(where: { $0.id == ctx.tripID && !$0.isLocked && $0.reviewedAt == nil }),
            // Same intervening-vehicle guard as the normal merge path below —
            // if a different vehicle was genuinely driven in between, this
            // isn't a continuation, it's a real return to vehicle A later.
@@ -815,7 +831,12 @@ final class TripDetector: NSObject, ObservableObject {
         }
 
         guard let lastTrip = store.trips
-            .filter({ $0.vehicleID == vehicle.id && !$0.isLocked })
+            // reviewedAt != nil excluded: a human has already classified/
+            // edited this trip, so it's done — resurrecting it as
+            // in-progress again would silently discard that review at the
+            // next real end, since ActiveTripState can't carry it forward
+            // (adversarial review finding, Trip.reviewedAt's doc comment).
+            .filter({ $0.vehicleID == vehicle.id && !$0.isLocked && $0.reviewedAt == nil })
             .max(by: { $0.endedAt < $1.endedAt })
         else { return false }
 
@@ -1075,29 +1096,46 @@ final class TripDetector: NSObject, ObservableObject {
         let speedKmh = max(0, location.speed) * 3.6
         trip.lastSpeedKmh = speedKmh
 
-        let previous = CLLocation(latitude: trip.lastLat, longitude: trip.lastLng)
-        let metres = location.distance(from: previous)
-        if metres > 10 {
-            trip.distanceKm += metres / 1000.0
-            trip.lastLat = location.coordinate.latitude
-            trip.lastLng = location.coordinate.longitude
-            trip.points.append(RecordedPoint(
-                recordedAt: location.timestamp,
-                lat: location.coordinate.latitude,
-                lng: location.coordinate.longitude,
-                speedKmh: Float(speedKmh),
-                accuracyM: Float(location.horizontalAccuracy)
-            ))
-            // Distance-based movement check: with distanceFilter = 10m iOS
-            // often reports speed = 0 at the moment of an update (snapshot
-            // between stop-and-go updates), so the speed check alone misses
-            // active driving and the audit then ends the trip as 'stationary'
-            // even though km kept piling up. Anything > 10m of actual GPS
-            // travel is irrefutable movement.
-            trip.lastMovementAt = Date()
-        }
-        if speedKmh >= movingSpeedKmh {   // genuinely moving
-            trip.lastMovementAt = Date()
+        // Reject invalid/low-quality fixes before trusting them as movement
+        // evidence. Previously ANY position delta over 10m was treated as
+        // "irrefutable movement" with no accuracy check at all — a fix with
+        // negative accuracy (CoreLocation's own "invalid" marker) or a
+        // coarse one (multipath in a garage/urban canyon — exactly the GPS-
+        // dead-zone conditions this file already accounts for elsewhere)
+        // can wander well past that threshold between callbacks, both
+        // inflating distanceKm and indefinitely refreshing lastMovementAt —
+        // recreating this app's founding failure mode (a trip that never
+        // ends) via GPS noise instead of the already-fixed Bluetooth vector
+        // (adversarial review finding). Matches the same 50 m ceiling
+        // LocationManager's manual recorder already uses. Diagnostics above
+        // (lastLocationAt/lastAccuracy/lastSpeedKmh) and the persist below
+        // still reflect this fix regardless — only distance/lastMovementAt
+        // accumulation is gated.
+        if location.horizontalAccuracy >= 0, location.horizontalAccuracy < 50 {
+            let previous = CLLocation(latitude: trip.lastLat, longitude: trip.lastLng)
+            let metres = location.distance(from: previous)
+            if metres > 10 {
+                trip.distanceKm += metres / 1000.0
+                trip.lastLat = location.coordinate.latitude
+                trip.lastLng = location.coordinate.longitude
+                trip.points.append(RecordedPoint(
+                    recordedAt: location.timestamp,
+                    lat: location.coordinate.latitude,
+                    lng: location.coordinate.longitude,
+                    speedKmh: Float(speedKmh),
+                    accuracyM: Float(location.horizontalAccuracy)
+                ))
+                // Distance-based movement check: with distanceFilter = 10m iOS
+                // often reports speed = 0 at the moment of an update (snapshot
+                // between stop-and-go updates), so the speed check alone misses
+                // active driving and the audit then ends the trip as 'stationary'
+                // even though km kept piling up. Anything > 10m of actual GPS
+                // travel is irrefutable movement.
+                trip.lastMovementAt = Date()
+            }
+            if speedKmh >= movingSpeedKmh {   // genuinely moving
+                trip.lastMovementAt = Date()
+            }
         }
         activeTrip = trip
         persistActiveTrip()
@@ -1216,7 +1254,8 @@ final class TripDetector: NSObject, ObservableObject {
         // (so no await needed there — only the geocoder calls are async).
         let storeRef = store
         let tripID = state.id
-        Task { @MainActor [startCoord, endCoord, storeRef, tripID] in
+        let expectedEndedAt = endedAt
+        Task { @MainActor [startCoord, endCoord, storeRef, tripID, expectedEndedAt] in
             let start = await Self.reverseGeocode(startCoord)
             let end = await Self.reverseGeocode(endCoord)
             // Look up whatever is CURRENTLY stored for this id rather than
@@ -1231,6 +1270,17 @@ final class TripDetector: NSObject, ObservableObject {
             // with stale type/customer/distance (adversarial review
             // finding). No-ops harmlessly if the trip is gone entirely.
             guard var current = storeRef.trips.first(where: { $0.id == tripID }) else { return }
+            // A trip id can be reused across a merge/reclaim + later re-end
+            // (resumeTrip deliberately keeps the same id). If THIS trip
+            // re-ended again before this Task resolved, endedAt will have
+            // moved on — that means a SECOND, later geocode Task is also in
+            // flight for the correct final leg, and patching here would
+            // race it with this stale first-leg's addresses, computed from
+            // coordinates that no longer describe the trip's real start/end
+            // (adversarial review finding). endedAt as a cheap version
+            // marker: it changes every time endTrip runs, no new field
+            // needed.
+            guard current.endedAt == expectedEndedAt else { return }
             current.startAddress = start
             current.endAddress = end
             storeRef.updateTrip(current)
@@ -1395,12 +1445,20 @@ final class TripDetector: NSObject, ObservableObject {
     private func restoreActiveTripIfAny() {
         // 1. Stale candidate cleanup — if the previous run was killed while
         //    verifying, the candidate file may be hours old. Drop anything
-        //    older than 2x the verification window.
-        if let data = try? Data(contentsOf: candidateURL),
-           let p = try? JSONDecoder().decode(PersistedCandidate.self, from: data) {
-            let age = Date().timeIntervalSince(p.startedAt)
-            if age > verificationSeconds * 2 {
-                log.log("Cleared stale verification candidate (age \(Int(age))s).", level: .info)
+        //    older than 2x the verification window. A file that's present
+        //    but fails to decode is cleared too rather than left to sit
+        //    (round-3 adversarial review finding — consistency with the
+        //    active-trip/relaunch-recovery handling below; low-stakes here
+        //    since it's a 90s recovery window either way).
+        if let data = try? Data(contentsOf: candidateURL) {
+            if let p = try? JSONDecoder().decode(PersistedCandidate.self, from: data) {
+                let age = Date().timeIntervalSince(p.startedAt)
+                if age > verificationSeconds * 2 {
+                    log.log("Cleared stale verification candidate (age \(Int(age))s).", level: .info)
+                    clearPersistedCandidate()
+                }
+            } else {
+                log.log("Found active-candidate.json but failed to decode it — discarding.", level: .warning)
                 clearPersistedCandidate()
             }
         }
@@ -1411,12 +1469,16 @@ final class TripDetector: NSObject, ObservableObject {
         //    window right after the relaunch that armed it) would lose it
         //    entirely, defeating the point for exactly the repeatedly-killed
         //    pattern this exists for (adversarial review finding).
-        if let data = try? Data(contentsOf: relaunchRecoveryURL),
-           let p = try? JSONDecoder().decode(PersistedRelaunchRecovery.self, from: data) {
-            if Date().timeIntervalSince(p.endedAt) < relaunchRecoveryWindowMinutes * 60 {
-                relaunchRecoveryContext = (tripID: p.tripID, vehicleID: p.vehicleID, endedAt: p.endedAt)
-                log.log("Restored pending relaunch-recovery context from a previous run.", level: .info)
+        if let data = try? Data(contentsOf: relaunchRecoveryURL) {
+            if let p = try? JSONDecoder().decode(PersistedRelaunchRecovery.self, from: data) {
+                if Date().timeIntervalSince(p.endedAt) < relaunchRecoveryWindowMinutes * 60 {
+                    relaunchRecoveryContext = (tripID: p.tripID, vehicleID: p.vehicleID, endedAt: p.endedAt)
+                    log.log("Restored pending relaunch-recovery context from a previous run.", level: .info)
+                } else {
+                    clearPersistedRelaunchRecoveryContext()
+                }
             } else {
+                log.log("Found relaunch-recovery.json but failed to decode it — discarding.", level: .warning)
                 clearPersistedRelaunchRecoveryContext()
             }
         }

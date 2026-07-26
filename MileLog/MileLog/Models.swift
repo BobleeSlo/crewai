@@ -144,11 +144,23 @@ struct Trip: Identifiable, Codable, Hashable {
     var notes: String
     var isLocked: Bool
     var lockedAt: Date? = nil
+    /// Set the moment a human classifies or edits this trip (a notification
+    /// quick-classify tap, or a save from the trip detail editor) — never by
+    /// auto-detection itself. `TripDetector.tryMergeWithRecentTrip` refuses
+    /// to merge/reclaim a trip once this is set: `ActiveTripState` has no
+    /// type/purpose/customerName/notes fields at all, so resurrecting a
+    /// reviewed trip as an in-progress one and later re-ending it would
+    /// silently discard whatever the user just applied and recompute a
+    /// fresh (possibly different) auto-classification in its place — with
+    /// no trace in the Detection log (adversarial review finding). Once a
+    /// human has looked at a trip, it's done; further driving becomes a new
+    /// trip rather than continuing to accumulate onto a reviewed one.
+    var reviewedAt: Date? = nil
 
     init(id: UUID = UUID(), vehicleID: UUID, type: TripType, purpose: String, customerName: String,
         startedAt: Date, endedAt: Date, startAddress: String, endAddress: String,
         startLat: Double? = nil, startLng: Double? = nil, endLat: Double? = nil, endLng: Double? = nil,
-        distanceKm: Double, notes: String, isLocked: Bool, lockedAt: Date? = nil) {
+        distanceKm: Double, notes: String, isLocked: Bool, lockedAt: Date? = nil, reviewedAt: Date? = nil) {
         self.id = id
         self.vehicleID = vehicleID
         self.type = type
@@ -166,12 +178,13 @@ struct Trip: Identifiable, Codable, Hashable {
         self.notes = notes
         self.isLocked = isLocked
         self.lockedAt = lockedAt
+        self.reviewedAt = reviewedAt
     }
 
     enum CodingKeys: String, CodingKey {
         case id, vehicleID, type, purpose, customerName, startedAt, endedAt
         case startAddress, endAddress, startLat, startLng, endLat, endLng
-        case distanceKm, notes, isLocked, lockedAt
+        case distanceKm, notes, isLocked, lockedAt, reviewedAt
     }
 
     /// This is the most consequential model in the app — every reimbursement
@@ -202,6 +215,7 @@ struct Trip: Identifiable, Codable, Hashable {
         notes = try c.decode(String.self, forKey: .notes)
         isLocked = try c.decode(Bool.self, forKey: .isLocked)
         lockedAt = try c.decodeIfPresent(Date.self, forKey: .lockedAt)
+        reviewedAt = try c.decodeIfPresent(Date.self, forKey: .reviewedAt)
     }
 
     /// Reimbursement uses different rates per trip type. Private trips never reimburse.
