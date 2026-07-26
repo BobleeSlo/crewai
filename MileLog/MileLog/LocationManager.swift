@@ -73,6 +73,26 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
         endLocation = lastLocation
     }
 
+    /// Stops and discards an in-progress manual recording WITHOUT finalizing
+    /// it — unlike `stop()`, which leaves `distanceKm`/`startLocation`/
+    /// `endLocation` in place for `RecordTripView.finalizeTrip()` to save
+    /// moments later. Called when the signed-in account is about to change:
+    /// a manual recording spanning that boundary can't be safely attributed
+    /// to either account, the same reasoning as
+    /// `TripDetector.discardActiveTripForAccountSwitch()` (round-7
+    /// adversarial review finding — the manual-recording path had no
+    /// equivalent at all).
+    func discardIfTracking() {
+        guard isTracking else { return }
+        isTracking = false
+        manager.stopUpdatingLocation()
+        distanceKm = 0
+        lastLocation = nil
+        startLocation = nil
+        endLocation = nil
+        startedAt = nil
+    }
+
     // MARK: - CLLocationManagerDelegate
     // Same nonisolated + explicit MainActor-hop pattern as TripDetector's
     // delegate conformance, rather than relying on CoreLocation's

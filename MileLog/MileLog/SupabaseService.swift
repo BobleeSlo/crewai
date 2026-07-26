@@ -11,6 +11,22 @@ final class SupabaseService: ObservableObject {
     @Published private(set) var userEmail: String?
     @Published private(set) var isWorking = false
 
+    /// Set by the app on launch (weak — these are the non-owning direction,
+    /// same pattern as `Store.detector`). Lets `signOut()` discard any
+    /// in-progress trip/manual recording the INSTANT sign-out happens,
+    /// using the still-valid outgoing session, rather than waiting for
+    /// `Store.initialSync` to react after a NEW sign-in later completes —
+    /// that reactive-only approach left the entire signed-out/re-
+    /// authenticating window (which can be arbitrarily long — however
+    /// long the user takes on the auth screen) with nothing watching, so a
+    /// trip that both started and ended purely via TripDetector's own 60s
+    /// audit timer during that window still got pushed under whichever
+    /// account ended up signed in when its fire-and-forget push actually
+    /// ran (round-7 adversarial review finding — the round-6 fix only
+    /// covered a trip still active at the moment `initialSync` itself ran).
+    weak var detector: TripDetector?
+    weak var manualLocation: LocationManager?
+
     let client: SupabaseClient
 
     init() {
@@ -51,6 +67,11 @@ final class SupabaseService: ObservableObject {
     func signOut() async {
         isWorking = true
         defer { isWorking = false }
+        // Discard BEFORE tearing down the session — see the property doc
+        // comments above for why waiting until a later sign-in's sync
+        // reacts leaves the whole in-between window unguarded.
+        detector?.discardActiveTripForAccountSwitch()
+        manualLocation?.discardIfTracking()
         try? await client.auth.signOut()
         await refreshAuth()
     }

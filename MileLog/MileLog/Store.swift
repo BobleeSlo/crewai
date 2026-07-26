@@ -158,8 +158,14 @@ final class Store: ObservableObject {
         }
     }
 
+    /// Refuses to delete a locked trip — `TripsListView` already disables
+    /// the swipe gesture per-row via `.deleteDisabled(trip.isLocked)`, but
+    /// this is the single choke point every deletion actually goes through,
+    /// so it's the safe place to enforce it regardless of call site (round-7
+    /// adversarial review finding: a locked trip is the exact record the
+    /// locking feature exists to make tamper-evident for a tax audit).
     func deleteTrips(_ sectionTrips: [Trip], at offsets: IndexSet) {
-        let ids = Set(offsets.map { sectionTrips[$0].id })
+        let ids = Set(offsets.map { sectionTrips[$0] }.filter { !$0.isLocked }.map(\.id))
         trips.removeAll { ids.contains($0.id) }
         deletedTripIDs.formUnion(ids)
         save()
@@ -178,16 +184,26 @@ final class Store: ObservableObject {
     /// place; the very next sync's "add anything cloud-only" step would
     /// then resurrect it, since a deleted id is by definition no longer in
     /// the local array to be excluded by id (round-5 adversarial review
-    /// finding). Kept indefinitely rather than pruned once "confirmed
-    /// deleted" — there's no cheap way to confirm that with `try?`-swallowed
-    /// errors, and a UUID set costs nothing to keep growing.
+    /// finding). A tombstone is pruned once its retry in `initialSync`
+    /// doesn't throw — but that alone isn't reliable proof of success
+    /// across an account switch: RLS filters a DELETE to the calling
+    /// account's own rows, so retrying account A's tombstone under a
+    /// currently-signed-in account B affects zero rows and STILL doesn't
+    /// throw, "confirming" and pruning a deletion B never actually
+    /// performed on A's data (round-7 adversarial review finding). Scoped
+    /// per account (by `lastSyncedUserID`) rather than globally, so B's
+    /// sync can only ever see/prune B's own tombstones, never A's.
     private var deletedTripIDs: Set<UUID> {
-        get { Self.readUUIDSet(key: "MileLog.deletedTripIDs") }
-        set { Self.writeUUIDSet(newValue, key: "MileLog.deletedTripIDs") }
+        get { Self.readUUIDSet(key: tombstoneKey("MileLog.deletedTripIDs")) }
+        set { Self.writeUUIDSet(newValue, key: tombstoneKey("MileLog.deletedTripIDs")) }
     }
     private var deletedVehicleIDs: Set<UUID> {
-        get { Self.readUUIDSet(key: "MileLog.deletedVehicleIDs") }
-        set { Self.writeUUIDSet(newValue, key: "MileLog.deletedVehicleIDs") }
+        get { Self.readUUIDSet(key: tombstoneKey("MileLog.deletedVehicleIDs")) }
+        set { Self.writeUUIDSet(newValue, key: tombstoneKey("MileLog.deletedVehicleIDs")) }
+    }
+    private func tombstoneKey(_ base: String) -> String {
+        guard let uid = lastSyncedUserID else { return base }
+        return "\(base).\(uid.uuidString)"
     }
     private static func readUUIDSet(key: String) -> Set<UUID> {
         let strings = UserDefaults.standard.stringArray(forKey: key) ?? []
@@ -342,10 +358,24 @@ final class Store: ObservableObject {
     /// otherwise a delete whose cloud call silently failed would get
     /// resurrected by this same merge on the very next sync (round-5
     /// adversarial review finding).
+    /// Guards against two `initialSync` calls overlapping — SwiftUI's
+    /// `.task(id:)` cancellation (`RootView`'s trigger) is advisory only,
+    /// and nothing in this function checked `Task.isCancelled`, so a rapid
+    /// sign-out-then-sign-in-as-someone-else could start a second call
+    /// while the first was still suspended on an earlier await, with both
+    /// eventually resolving `currentUserId()` against whatever the shared
+    /// session happens to be by then (round-7 adversarial review finding).
+    /// Each call captures its own generation on entry and bails out the
+    /// moment a newer call has superseded it, checked after every await
+    /// that precedes a mutation.
+    private var syncGeneration = 0
+
     func initialSync(via supabase: SupabaseService) async {
         self.supabase = supabase
+        syncGeneration += 1
+        let myGeneration = syncGeneration
 
-        guard let userID = try? await supabase.currentUserId() else { return }
+        guard let userID = try? await supabase.currentUserId(), myGeneration == syncGeneration else { return }
         if let previous = lastSyncedUserID, previous != userID {
             // A different account than whatever was last synced on this
             // device — the local state belongs to that previous account,
@@ -365,6 +395,7 @@ final class Store: ObservableObject {
             save()
         }
         lastSyncedUserID = userID
+        guard myGeneration == syncGeneration else { return }
 
         // Prune a tombstone the moment its delete call doesn't throw —
         // DELETE is idempotent (a row that's already gone, or never
@@ -382,6 +413,7 @@ final class Store: ObservableObject {
         for vehicle in vehicles { try? await supabase.pushVehicle(vehicle) }
         for trip in trips       { try? await supabase.pushTrip(trip) }
         let settingsPushed = (try? await supabase.pushSettings(settings)) != nil
+        guard myGeneration == syncGeneration else { return }
 
         if let cloudVehicles = try? await supabase.pullVehicles() {
             let localIDs = Set(vehicles.map(\.id))

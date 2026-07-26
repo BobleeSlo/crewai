@@ -164,6 +164,23 @@ drop trigger if exists trips_lock on trips;
 create trigger trips_lock before update on trips
   for each row execute function trip_lock_guard();
 
+-- The UPDATE guard above had no DELETE equivalent — a locked trip (the
+-- exact record the locking feature exists to make tamper-evident for a
+-- tax audit) could be deleted outright via any direct API/SQL access that
+-- bypasses the app's own Swift-level check.
+create or replace function trip_lock_delete_guard() returns trigger as $$
+begin
+  if old.is_locked then
+    raise exception 'Trip is locked; it cannot be deleted';
+  end if;
+  return old;
+end;
+$$ language plpgsql;
+
+drop trigger if exists trips_lock_delete on trips;
+create trigger trips_lock_delete before delete on trips
+  for each row execute function trip_lock_delete_guard();
+
 -- ---------- ROW-LEVEL SECURITY ----------
 
 alter table vehicles       enable row level security;

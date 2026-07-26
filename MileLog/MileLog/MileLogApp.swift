@@ -29,9 +29,16 @@ struct MileLogApp: App {
         // (TripDetector reads its own preset from store.settings on each trip).
         location.apply(energyMode: store.settings.energyMode)
 
+        let supabase = SupabaseService()
+        // Lets signOut() discard an in-progress trip/recording the instant
+        // it happens, rather than only reacting once a later sign-in's sync
+        // gets around to it — see SupabaseService's own property comments.
+        supabase.detector = detector
+        supabase.manualLocation = location
+
         _store = StateObject(wrappedValue: store)
         _location = StateObject(wrappedValue: location)
-        _supabase = StateObject(wrappedValue: SupabaseService())
+        _supabase = StateObject(wrappedValue: supabase)
         _detectionLog = StateObject(wrappedValue: log)
         _notifications = StateObject(wrappedValue: notifications)
         _detector = StateObject(wrappedValue: detector)

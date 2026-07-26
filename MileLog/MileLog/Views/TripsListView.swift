@@ -32,6 +32,12 @@ struct TripsListView: View {
                         .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
                         .listRowSeparator(.hidden)
                         .listRowBackground(Color.clear)
+                        // A locked trip is the exact record the locking
+                        // feature exists to make tamper-evident for a tax
+                        // audit — swipe-to-delete must not be able to
+                        // remove one outright with no trace (round-7
+                        // adversarial review finding).
+                        .deleteDisabled(trip.isLocked)
                     }
                     .onDelete { offsets in
                         store.deleteTrips(section.trips, at: offsets)
