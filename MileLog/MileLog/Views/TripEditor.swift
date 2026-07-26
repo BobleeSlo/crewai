@@ -17,6 +17,14 @@ struct TripEditor: View {
     /// Distance, date, vehicle become read-only on a locked trip.
     private var isLocked: Bool { trip.isLocked }
 
+    /// Only own-car trips are personally reimbursed at the mileage rate —
+    /// a company car's costs are covered directly by the company (that's
+    /// what the Potni Nalog logbook is for), matching
+    /// PDFReporter.ownCarCandidates' own vehicle-type filter. This screen
+    /// previously showed a reimbursement figure for every trip regardless
+    /// of vehicle type (round-10 adversarial review finding).
+    private var isOwnCarTrip: Bool { store.vehicle(trip.vehicleID)?.type == .own }
+
     var body: some View {
         Form {
             if isLocked {
@@ -103,12 +111,14 @@ struct TripEditor: View {
                 ReceiptsSection(tripID: trip.id, receipts: $receipts)
             }
 
-            Section {
-                LabeledContent("Reimbursement",
-                               value: String(format: "€ %.2f", trip.reimbursement(
-                                businessRate: store.settings.reimbursementRate,
-                                commuteRate: store.settings.commuteRate
-                               )))
+            if isOwnCarTrip {
+                Section {
+                    LabeledContent("Reimbursement",
+                                   value: String(format: "€ %.2f", trip.reimbursement(
+                                    businessRate: store.settings.reimbursementRate,
+                                    commuteRate: store.settings.commuteRate
+                                   )))
+                }
             }
         }
         .navigationTitle(isNew ? "Classify trip" : "Edit trip")

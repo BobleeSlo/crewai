@@ -55,3 +55,26 @@ struct LockView: View {
         }
     }
 }
+
+/// Plain, non-interactive cover shown while `scenePhase != .active` and the
+/// biometric lock is enabled but not yet re-engaged (`RootView` only calls
+/// `appLock.lock()` on `.background`, deliberately not on `.inactive` —
+/// that phase also fires while `LockView`'s own Face ID sheet is up, and
+/// re-locking there would retrigger it in a loop). Without this, the brief
+/// `.inactive` phase the system uses to capture the App Switcher's live
+/// snapshot — which happens BEFORE `.background` and its `lock()` call —
+/// left trip/customer/reimbursement data visible in that snapshot despite
+/// the Security section's promise to protect it (round-10 adversarial
+/// review finding). Purely visual: never touches `isLocked`, so it can't
+/// cause the retrigger loop the `.inactive`-avoidance was guarding against.
+struct PrivacyCurtainView: View {
+    var body: some View {
+        Theme.brandGradient
+            .ignoresSafeArea()
+            .overlay {
+                Image(systemName: "lock.fill")
+                    .font(.system(size: 48, weight: .light))
+                    .foregroundColor(.white.opacity(0.85))
+            }
+    }
+}

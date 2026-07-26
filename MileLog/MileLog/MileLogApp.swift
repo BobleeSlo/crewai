@@ -79,6 +79,10 @@ struct RootView: View {
                     .overlay {
                         if appLock.isLocked {
                             LockView().transition(.opacity)
+                        } else if appLock.enabled && scenePhase != .active {
+                            // Bridges the gap before `.background`'s lock()
+                            // call — see PrivacyCurtainView's doc comment.
+                            PrivacyCurtainView().transition(.opacity)
                         }
                     }
             } else {

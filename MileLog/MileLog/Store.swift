@@ -151,8 +151,6 @@ final class Store: ObservableObject {
     }
 
     private func recordAuditDiff(from old: Trip, to new: Trip) {
-        guard let supabase else { return }
-
         var changes: [(field: String, old: String, new: String)] = []
         if old.purpose      != new.purpose      { changes.append(("purpose", old.purpose, new.purpose)) }
         if old.customerName != new.customerName { changes.append(("customer_name", old.customerName, new.customerName)) }
@@ -160,12 +158,68 @@ final class Store: ObservableObject {
         if old.type         != new.type         { changes.append(("trip_type", old.type.rawValue, new.type.rawValue)) }
 
         guard !changes.isEmpty else { return }
-        let tripID = new.id
-        Task {
-            for change in changes {
-                try? await supabase.pushAuditEntry(tripID: tripID, field: change.field,
-                                                   oldValue: change.old, newValue: change.new)
+        pendingAuditEntries += changes.map {
+            PendingAuditEntry(tripID: new.id, field: $0.field, oldValue: $0.old, newValue: $0.new)
+        }
+        Task { await flushPendingAuditEntries() }
+    }
+
+    /// Pushes every queued audit entry, dropping each one from the queue
+    /// only once its push actually succeeds. Called right after every edit
+    /// to a locked trip, and again at the top of every `initialSync` — a
+    /// push made while offline (or hitting any other transient failure)
+    /// previously existed only for the lifetime of one fire-and-forget
+    /// `Task { try? ... }`, with no way to ever reconstruct it afterward:
+    /// the next edit diffs from the new state, not the one that entry would
+    /// have recorded. This app already treats poor connectivity as routine
+    /// enough to warrant retry/tombstone machinery for trip and vehicle
+    /// deletes; the compliance audit trail — the one thing this codebase
+    /// has previously shipped a dedicated migration to make actually work
+    /// (migration-008's missing INSERT policy) — had no equivalent (round-10
+    /// adversarial review finding). A push is a plain INSERT with no natural
+    /// key to upsert against, so retrying an already-succeeded-but-
+    /// response-lost push can create a duplicate row; accepted, since a
+    /// duplicate audit entry is harmless for a tamper-evident trail but a
+    /// silently missing one defeats its purpose.
+    func flushPendingAuditEntries() async {
+        guard let supabase else { return }
+        let queued = pendingAuditEntries
+        guard !queued.isEmpty else { return }
+        var remaining: [PendingAuditEntry] = []
+        for entry in queued {
+            do {
+                try await supabase.pushAuditEntry(tripID: entry.tripID, field: entry.field,
+                                                   oldValue: entry.oldValue, newValue: entry.newValue)
+            } catch {
+                remaining.append(entry)
             }
+        }
+        pendingAuditEntries = remaining
+        if !remaining.isEmpty {
+            detectionLog?.log("\(remaining.count) compliance audit-log entr\(remaining.count == 1 ? "y" : "ies") couldn't sync yet — will retry.",
+                               level: .warning)
+        }
+    }
+
+    private struct PendingAuditEntry: Codable {
+        let tripID: UUID
+        let field: String
+        let oldValue: String
+        let newValue: String
+    }
+
+    /// Scoped per account like the delete tombstones — an entry queued
+    /// under one account must never be pushed under a different one that
+    /// later signs into the same device.
+    private var pendingAuditEntries: [PendingAuditEntry] {
+        get {
+            guard let data = UserDefaults.standard.data(forKey: tombstoneKey("MileLog.pendingAuditEntries")),
+                  let decoded = try? JSONDecoder().decode([PendingAuditEntry].self, from: data) else { return [] }
+            return decoded
+        }
+        set {
+            let data = try? JSONEncoder().encode(newValue)
+            UserDefaults.standard.set(data, forKey: tombstoneKey("MileLog.pendingAuditEntries"))
         }
     }
 
@@ -426,6 +480,7 @@ final class Store: ObservableObject {
         for id in deletedVehicleIDs {
             if (try? await supabase.deleteVehicle(id: id)) != nil { deletedVehicleIDs.remove(id) }
         }
+        await flushPendingAuditEntries()
 
         for vehicle in vehicles { try? await supabase.pushVehicle(vehicle) }
         for trip in trips       { try? await supabase.pushTrip(trip) }
@@ -485,6 +540,15 @@ final class Store: ObservableObject {
         var rows = ["Date,Vehicle,Type,Customer,Purpose,From,To,Distance (km),Reimbursement (EUR),Notes"]
         // Zero-distance trips are ignored in exports (auto-detector noise / aborted manual trips).
         for trip in trips.filter({ $0.distanceKm > 0 }).sorted(by: { $0.startedAt < $1.startedAt }) {
+            // Only own-car trips are personally reimbursed at the mileage
+            // rate — a company car's costs are covered directly by the
+            // company (that's what the Potni Nalog logbook is for), exactly
+            // as PDFReporter.ownCarCandidates already filters by vehicle
+            // type before ever computing a reimbursement figure. This CSV
+            // export had no such filter, so it printed a fabricated
+            // €-reimbursement for company-car trips too (round-10
+            // adversarial review finding).
+            let isOwnCar = vehicle(trip.vehicleID)?.type == .own
             let cols = [
                 df.string(from: trip.startedAt),
                 vehicleName(trip.vehicleID),
@@ -494,10 +558,10 @@ final class Store: ObservableObject {
                 trip.startAddress,
                 trip.endAddress,
                 String(format: "%.1f", trip.distanceKm),
-                String(format: "%.2f", trip.reimbursement(
+                String(format: "%.2f", isOwnCar ? trip.reimbursement(
                     businessRate: settings.reimbursementRate,
                     commuteRate: settings.commuteRate
-                )),
+                ) : 0),
                 trip.notes
             ]
             rows.append(cols.map(Self.csvEscape).joined(separator: ","))
