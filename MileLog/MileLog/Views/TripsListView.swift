@@ -17,7 +17,7 @@ struct TripsListView: View {
     var body: some View {
         NavigationStack {
             Group {
-                if store.trips.isEmpty && store.lastSyncFailed && !store.isSyncing {
+                if store.trips.isEmpty && store.tripsSyncFailed && !store.isSyncing {
                     syncFailedState
                 } else if store.trips.isEmpty && store.isSyncing {
                     // A returning user restoring an account with months of

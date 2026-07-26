@@ -350,6 +350,24 @@ final class TripDetector: NSObject, ObservableObject {
         clearPersistedRelaunchRecoveryContext()
     }
 
+    /// Re-arms monitoring if the user's saved preference says it should be
+    /// on. `startMonitoring()` is otherwise reachable only from `init`, the
+    /// Auto-detect toggle, and an OS authorization change — so anything
+    /// that calls `disable()` mid-session (sign-out, an account switch)
+    /// left auto-detect dead until the next app relaunch, while
+    /// `settings.autoDetectEnabled` stayed `true` and BOTH toggles kept
+    /// rendering ON and the status kept reading "Starting…" forever. Every
+    /// drive after that went silently unrecorded (round-6 UX review
+    /// finding — a regression from round 5's own sign-out fix). Safe to
+    /// call repeatedly: `startMonitoring()` early-returns when already on.
+    func resumeIfEnabled() {
+        guard store.settings.autoDetectEnabled,
+              permission == .authorizedAlways,
+              !isEnabled else { return }
+        startMonitoring()
+        log.log("Auto-detect re-armed after a session change.", level: .info)
+    }
+
     /// Discards an in-progress trip WITHOUT saving or pushing it anywhere —
     /// unlike every other trip-ending path, which always calls `endTrip()`
     /// and therefore always (past the noise threshold) adds it to
@@ -607,6 +625,13 @@ final class TripDetector: NSObject, ObservableObject {
                 }
                 return
             }
+            // A vehicle exists again, so a FUTURE no-vehicle spell should
+            // warn afresh. Resetting only in `startMonitoring()` wasn't
+            // enough: that early-returns when monitoring is already on, so
+            // a user who deleted their last vehicle while auto-detect was
+            // running would be warned once and then never again (round-6
+            // UX review finding).
+            hasWarnedNoVehicle = false
             // Log whenever the vehicle is an unconfirmed GUESS, not just a
             // name-only BT match (matchVehicle already warns for that case)
             // — otherwise a silently wrong vehicle attribution has zero

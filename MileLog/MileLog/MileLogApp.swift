@@ -68,6 +68,10 @@ struct RootView: View {
     @EnvironmentObject var supabase: SupabaseService
     @EnvironmentObject var appLock: AppLock
     @Environment(\.scenePhase) private var scenePhase
+    /// Set when the user opens a password-reset link from their email —
+    /// see `SetNewPasswordView`. Presented over everything else, because
+    /// the recovery session it rides on is short-lived.
+    @State private var showingSetNewPassword = false
 
     var body: some View {
         Group {
@@ -90,6 +94,27 @@ struct RootView: View {
             }
         }
         .animation(.easeInOut(duration: 0.2), value: appLock.isLocked)
+        // Receives the password-reset link from the user's email. Without
+        // this the "Forgot password?" flow was a dead end — the email was
+        // sent, but nothing in the app could complete it (round-6 UX
+        // review finding). Requires the `milelog` URL scheme registered on
+        // the target; see SupabaseConfig.passwordResetRedirect.
+        .onOpenURL { url in
+            guard url.scheme == "milelog" else { return }
+            Task {
+                do {
+                    try await supabase.handleRecoveryLink(url)
+                    showingSetNewPassword = true
+                } catch {
+                    // Expired or already-used link — the user stays on the
+                    // sign-in screen and can request a fresh one.
+                }
+            }
+        }
+        .sheet(isPresented: $showingSetNewPassword) {
+            SetNewPasswordView()
+                .environmentObject(supabase)
+        }
         .onChange(of: scenePhase) { _, phase in
             // Re-lock whenever the app is sent to the background, so returning
             // to MileLog requires Face ID again. Only .background triggers it —

@@ -24,4 +24,13 @@ enum SupabaseConfig {
         }
         return key
     }
+
+    /// Where a password-reset email should send the user back to. Requires
+    /// the matching URL scheme to be registered on the target (Xcode →
+    /// target → Info → URL Types) AND added to the Supabase project's
+    /// Authentication → URL Configuration → Redirect URLs allow-list.
+    /// Without both, the reset link lands on the project's Site URL
+    /// (`http://localhost:3000` on a default project) and the user can
+    /// never actually get back in — see MileLog/README.md.
+    static let passwordResetRedirect = URL(string: "milelog://auth/reset")!
 }

@@ -72,7 +72,32 @@ final class SupabaseService: ObservableObject {
     func sendPasswordReset(email: String) async throws {
         isWorking = true
         defer { isWorking = false }
-        try await client.auth.resetPasswordForEmail(email)
+        // `redirectTo` is what makes the emailed link come back INTO the
+        // app. Round 5 shipped this call without it, so the link landed on
+        // the Supabase project's Site URL — outside the app, with nothing
+        // able to complete the reset. The affordance existed and promised
+        // recovery, but couldn't deliver it (round-6 UX review finding).
+        try await client.auth.resetPasswordForEmail(
+            email,
+            redirectTo: SupabaseConfig.passwordResetRedirect
+        )
+    }
+
+    /// Completes a password reset: exchanges the emailed recovery link for
+    /// a session, so the subsequent password update is authorized.
+    func handleRecoveryLink(_ url: URL) async throws {
+        isWorking = true
+        defer { isWorking = false }
+        try await client.auth.session(from: url)
+        await refreshAuth()
+    }
+
+    /// Sets a new password for the currently-recovered session.
+    func updatePassword(_ newPassword: String) async throws {
+        isWorking = true
+        defer { isWorking = false }
+        _ = try await client.auth.update(user: UserAttributes(password: newPassword))
+        await refreshAuth()
     }
 
     func signOut() async {

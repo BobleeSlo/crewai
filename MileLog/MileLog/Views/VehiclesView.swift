@@ -20,7 +20,7 @@ struct VehiclesView: View {
         NavigationStack {
             Group {
                 if store.activeVehicles.isEmpty && store.archivedVehicles.isEmpty
-                    && store.lastSyncFailed && !store.isSyncing {
+                    && store.vehiclesSyncFailed && !store.isSyncing {
                     // "Couldn't reach your vehicles" rather than the
                     // confident "No vehicles yet" — same reasoning as
                     // TripsListView (round-5 UX review finding).

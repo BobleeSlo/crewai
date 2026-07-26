@@ -74,7 +74,14 @@ for free with any Apple ID.
    *String*):
    - `SUPABASE_URL` → `https://xxxx.supabase.co` *(your Project URL)*
    - `SUPABASE_ANON_KEY` → `sb_publishable_...` *(your publishable key)*
-6. Build & run on the Simulator or your iPhone. Create an account on the sign-in
+6. **Register the password-reset URL scheme** (target → *Info* tab → *URL
+   Types* → "+", set **URL Schemes** to `milelog`). Then add
+   `milelog://auth/reset` to your Supabase project's *Authentication → URL
+   Configuration → Redirect URLs* allow-list. Without **both**, the
+   "Forgot password?" email link lands on the project's Site URL
+   (`http://localhost:3000` on a default project) instead of reopening the
+   app, and the user can never complete the reset.
+7. Build & run on the Simulator or your iPhone. Create an account on the sign-in
    screen, then log a trip from the *Record* tab.
 
 > **Never commit your real `SUPABASE_*` values.** Anyone with the publishable
