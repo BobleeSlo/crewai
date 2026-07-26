@@ -205,6 +205,19 @@ struct VehicleEditView: View {
     /// zero audit trail (round-18 adversarial review finding). Frozen once
     /// any trip referencing this vehicle is locked, mirroring the same
     /// "immutable once reported" philosophy already applied per-trip.
+    ///
+    /// The exact same reasoning applies to `name`/`licensePlate`/
+    /// `vehicleTypeDescription`/`seatCount`: all four are printed straight
+    /// from this live `Vehicle` into the own-car PDF/CSV or the potni nalog
+    /// header at Generate-tap time, never snapshotted per-trip. Round 18's
+    /// fix only froze `type`, leaving every other field VehicleEditView
+    /// exposes fully editable — re-registering/renaming a car after some
+    /// of its trips are locked would silently change what a re-generated
+    /// historical Potni Nalog prints for those already-reported trips
+    /// (round-19 adversarial review finding). `defaultTripType`/Bluetooth
+    /// pairing are exempt: neither is ever printed on a report or affects
+    /// an already-classified trip (confirmed by tracing their only call
+    /// sites), so they stay freely editable regardless of lock status.
     private var hasLockedTrips: Bool {
         store.trips.contains { $0.vehicleID == vehicle.id && $0.isLocked }
     }
@@ -212,9 +225,11 @@ struct VehicleEditView: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("Basics") {
+                Section {
                     TextField("Name (e.g. Škoda Octavia)", text: $vehicle.name)
+                        .disabled(hasLockedTrips)
                     TextField("License plate", text: $vehicle.licensePlate)
+                        .disabled(hasLockedTrips)
                     Picker("Type", selection: $vehicle.type) {
                         ForEach(VehicleType.allCases) { type in
                             Text(type.label).tag(type)
@@ -222,10 +237,12 @@ struct VehicleEditView: View {
                     }
                     .pickerStyle(.segmented)
                     .disabled(hasLockedTrips)
+                } header: {
+                    Text("Basics")
+                } footer: {
                     if hasLockedTrips {
-                        Text("Can't be changed — this vehicle has locked (already-reported) trips, and its type determines how they're reimbursed.")
+                        Text("Can't be changed — this vehicle has locked (already-reported) trips, and these fields are printed on their reports.")
                             .font(.caption)
-                            .foregroundColor(.secondary)
                     }
                 }
 
@@ -243,11 +260,15 @@ struct VehicleEditView: View {
 
                 Section {
                     TextField("Vrsta in tip vozila", text: $vehicle.vehicleTypeDescription)
+                        .disabled(hasLockedTrips)
                     Stepper("Število sedežev: \(vehicle.seatCount)", value: $vehicle.seatCount, in: 1...9)
+                        .disabled(hasLockedTrips)
                 } header: {
                     Text("Potni nalog")
                 } footer: {
-                    Text("Printed in the company-car potni nalog report header.")
+                    Text(hasLockedTrips
+                         ? "Can't be changed — printed on this vehicle's already-locked reports."
+                         : "Printed in the company-car potni nalog report header.")
                         .font(.footnote)
                 }
 

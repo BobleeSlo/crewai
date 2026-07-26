@@ -419,27 +419,30 @@ final class Store: ObservableObject {
         // still using the blind-overwrite pattern updateTrip was fixed
         // for).
         var merged = vehicles[idx]
-        merged.name = vehicle.name
-        merged.licensePlate = vehicle.licensePlate
-        // `type` (own vs. company) drives every reimbursement/logbook
-        // classification via a LIVE lookup at every call site (TripEditor,
-        // exportCSV, PDFReporter) — none of them snapshot it per-trip.
-        // Changing it retroactively reclassifies every trip ever driven in
-        // this vehicle, including already-locked ones, bypassing the
-        // trip-level lock entirely with zero audit trail (round-18
-        // adversarial review finding). Frozen the same way distanceKm/
-        // type/vehicleID are frozen on a locked Trip: once ANY trip
-        // referencing this vehicle is locked, its type can no longer
+        // `type`/`name`/`licensePlate`/`vehicleTypeDescription`/`seatCount`
+        // are all printed straight from this live Vehicle into the
+        // own-car PDF/CSV or the potni nalog header at Generate-tap time —
+        // none of them snapshot per-trip. Changing any of them retroactively
+        // reclassifies or relabels every trip ever driven in this vehicle,
+        // including already-locked ones, bypassing the trip-level lock
+        // entirely with zero audit trail (round-18 finding for `type`,
+        // round-19 finding for the rest of these). Frozen the same way
+        // distanceKm/type/vehicleID are frozen on a locked Trip: once ANY
+        // trip referencing this vehicle is locked, none of these can
         // change — enforced here (not just in the UI's `.disabled`) so a
         // stale VehicleEditView screen can't bypass it either.
+        // `defaultTripType`/Bluetooth pairing are exempt: neither is ever
+        // printed on a report or affects an already-classified trip.
         if !trips.contains(where: { $0.vehicleID == vehicle.id && $0.isLocked }) {
+            merged.name = vehicle.name
+            merged.licensePlate = vehicle.licensePlate
             merged.type = vehicle.type
+            merged.seatCount = vehicle.seatCount
+            merged.vehicleTypeDescription = vehicle.vehicleTypeDescription
         }
         merged.defaultTripType = vehicle.defaultTripType
         merged.bluetoothName = vehicle.bluetoothName
         merged.bluetoothUID = vehicle.bluetoothUID
-        merged.seatCount = vehicle.seatCount
-        merged.vehicleTypeDescription = vehicle.vehicleTypeDescription
         vehicles[idx] = merged
         save()
         push(merged)

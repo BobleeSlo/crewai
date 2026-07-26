@@ -14,6 +14,8 @@ create table if not exists vehicles (
   default_purpose text default 'business' check (default_purpose in ('business','private','commute')),
   current_odometer_km integer default 0,
   is_active boolean default true,
+  seat_count integer default 5,
+  vehicle_type_description text default 'OSEBNI AVTOMOBIL',
   created_at timestamptz default now()
 );
 
@@ -195,19 +197,26 @@ create trigger trips_lock_delete before delete on trips
 
 -- The trip-level lock guards above only protect the trips table itself —
 -- but every reimbursement/logbook computation determines own-car vs.
--- company-car via a LIVE lookup of the vehicle's own type, not a per-trip
--- snapshot. Changing a vehicle's type after the fact would retroactively
--- reclassify every trip ever driven in it, including already-locked ones,
+-- company-car, and prints name/plate/description/seat count, via a LIVE
+-- lookup of the vehicle row, never a per-trip snapshot. Changing any of
+-- these after the fact would retroactively reclassify or relabel every
+-- trip ever driven in this vehicle, including already-locked ones,
 -- completely bypassing trip_lock_guard's "once reported, immutable"
--- guarantee for the exact figure it exists to freeze, via a table that
--- guard was never watching (round-18 adversarial review finding). Frozen
--- the same way: once any trip referencing this vehicle is locked, its type
--- can no longer change.
+-- guarantee via a table that guard was never watching (round-18 finding
+-- for vehicle_type, round-19 finding for the rest). Frozen the same way:
+-- once any trip referencing this vehicle is locked, none of these can
+-- change. default_purpose (defaultTripType) and Bluetooth pairing are
+-- exempt — neither is ever printed on a report or affects an
+-- already-classified trip.
 create or replace function vehicle_type_lock_guard() returns trigger as $$
 begin
-  if new.vehicle_type is distinct from old.vehicle_type
+  if (new.vehicle_type              is distinct from old.vehicle_type
+      or new.name                   is distinct from old.name
+      or new.license_plate          is distinct from old.license_plate
+      or new.vehicle_type_description is distinct from old.vehicle_type_description
+      or new.seat_count             is distinct from old.seat_count)
      and exists (select 1 from trips t where t.vehicle_id = old.id and t.is_locked) then
-    raise exception 'Vehicle type cannot be changed once it has locked trips';
+    raise exception 'Vehicle identity/type cannot be changed once it has locked trips';
   end if;
   return new;
 end;
