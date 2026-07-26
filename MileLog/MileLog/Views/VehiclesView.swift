@@ -190,6 +190,7 @@ struct VehicleEditView: View {
     @State private var pairingMessage: String?
     @State private var showingDeleteConfirm = false
     @State private var deletionMessage: String?
+    @State private var showsStaleLockAlert = false
 
     private var saveButtonEnabled: Bool {
         !vehicle.name.trimmingCharacters(in: .whitespaces).isEmpty
@@ -333,12 +334,27 @@ struct VehicleEditView: View {
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button {
-                        if isNew {
-                            store.addVehicle(vehicle)
+                        // This sheet's @State can go stale the same way
+                        // TripEditor's does: if the app is backgrounded and
+                        // foregrounded while this sheet is open,
+                        // applyAutomaticLocks() (wired to every foreground
+                        // transition) can lock a trip on this vehicle mid-
+                        // edit. The fields react (they're disabled live via
+                        // hasLockedTrips), but nothing previously stopped
+                        // Save from silently discarding whatever was typed
+                        // before that point — unlike TripEditor's identical
+                        // case, which alerts the user instead of a silent
+                        // "success" (round-22 adversarial review finding).
+                        if !isNew && hasLockedTrips {
+                            showsStaleLockAlert = true
                         } else {
-                            store.updateVehicle(vehicle)
+                            if isNew {
+                                store.addVehicle(vehicle)
+                            } else {
+                                store.updateVehicle(vehicle)
+                            }
+                            dismiss()
                         }
-                        dismiss()
                     } label: {
                         Text("Save")
                             .font(.subheadline.weight(.semibold))
@@ -375,6 +391,14 @@ struct VehicleEditView: View {
                 } else {
                     Text("This vehicle has no trips and will be removed permanently.")
                 }
+            }
+            .alert("This vehicle changed while open", isPresented: $showsStaleLockAlert) {
+                Button("OK") {
+                    store.updateVehicle(vehicle)
+                    dismiss()
+                }
+            } message: {
+                Text("It now has a locked (already-reported) trip, so its name, plate, type, and Potni Nalog details can't be changed here — those edits were discarded.")
             }
         }
     }

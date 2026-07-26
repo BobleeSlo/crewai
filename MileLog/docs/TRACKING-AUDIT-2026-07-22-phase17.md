@@ -471,6 +471,24 @@ Tally: 1 Critical (−15), 1 Medium (−4) = 100 − 19 = **81%**
 
 Confirmed the parts of round 20's original design that were NOT the problem: the `idx` recomputation happened fresh after each `await` with no stale-index race, and a concurrent delete would have correctly been a no-op rather than resurrecting a removed row — the flaw was specifically the "trust whatever the pull returns" assumption, not the array-indexing mechanics. Both major sagas (cross-account leak, `updateTrip` merge staleness) re-spot-checked and still closed. All round 9-19 fixes (lock guards, staleness alerts, RLS ownership checks, etc.) spot-checked and intact — round 21 confirmed no other file changed since round 20 besides `Store.swift`.
 
+## Round 22 review: Success Score 96/100
+
+A twenty-second reviewer was tasked with verifying round 21's revert was complete and correct, plus giving a second, skeptical look at rounds 16-20's fixes specifically for the "could this well-intentioned fix itself be wrong" failure mode round 20→21 had just demonstrated. **The round 20→21 saga checked out clean** — the revert left no half-reverted state, and `initialSync`'s per-sync retry loop really does unconditionally re-push every local trip/vehicle. The one finding this round is the first score to cross the user's 95% target.
+
+Tally: 1 Medium (−4) = 100 − 4 = **96%**
+
+### Medium
+
+1. **`VehicleEditView` silently discarded identity-field edits with no warning when a vehicle became lock-protected mid-edit — unlike `TripEditor`'s identical case, which alerts the user.** If the app is backgrounded and foregrounded while this sheet is open, `applyAutomaticLocks()` (wired to every foreground transition) can lock a trip on the vehicle being edited. The fields correctly react live (`.disabled(hasLockedTrips)`), but the Save button had no staleness check — it unconditionally called `store.updateVehicle(vehicle)` and dismissed, while the merge silently discarded the five now-locked fields, giving the appearance of a successful save. **Fixed**: replicated `TripEditor`'s pattern — the Save action now checks `hasLockedTrips` first and, if a lock appeared while the sheet was open, shows an alert explaining that those fields couldn't be saved before proceeding with the safe partial save (other fields like `defaultTripType`/Bluetooth pairing still apply).
+
+### Confirmed still closed / correct from prior rounds
+
+**Round 21's revert verified complete and correct**: `push(_ trip:)`/`push(_ vehicle:)` contain only a log-on-failure catch block with zero leftover re-pull/adoption code; `initialSync` really does unconditionally re-push every local trip and vehicle on every sync it runs, confirming the "existing retry loop" claim in round 21's fix comment. **Second skeptical pass on rounds 16-20**: round 19's vehicle-lock DB trigger/Store merge/UI gates are all field-for-field consistent (the one gap found was this round's Medium finding); round 15's "back in progress" alert is correct as designed (`ActiveTripState` structurally has no `purpose`/`customerName`/`notes`/`type` fields to safely apply, so blocking the whole save is the only safe option, not overly conservative); round 17's manual-recorder pre-await snapshot and round 16's RLS ownership checks both re-verified intact. Both major sagas (cross-account leak, `updateTrip` merge staleness) re-spot-checked and remain closed.
+
+## Status after 22 rounds
+
+The score crossed the user's 95% target for the first time this round. Given the trajectory's history — every prior high score (78.5, 90.5, 89.5) was followed by a real finding in a different area on the very next round, and the round 20→21 saga showed that even a fix built to close one round's finding can introduce its own bug — a single round above target isn't itself proof of stability. Checking with the user on how to proceed from here.
+
 ## What's next
 
-Round 22 is queued next per the user's standing instruction to keep iterating until the score exceeds 95%.
+Round 23 is queued next per the user's standing instruction to keep iterating until the score exceeds 95%.
