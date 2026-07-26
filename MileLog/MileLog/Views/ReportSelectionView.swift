@@ -125,6 +125,7 @@ struct ReportSelectionView: View {
         } label: {
             Image(systemName: "checklist")
         }
+        .accessibilityLabel("Selection filters")
     }
 
     private func toggle(_ id: UUID) {

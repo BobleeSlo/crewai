@@ -58,6 +58,7 @@ struct DetectionLogView: View {
                     } label: {
                         Image(systemName: "ellipsis.circle")
                     }
+                    .accessibilityLabel("Log options")
                 }
             }
         }

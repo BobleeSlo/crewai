@@ -15,6 +15,8 @@ struct TripEditor: View {
     @State private var receipts: [Receipt] = []
     @State private var showsStaleLockAlert = false
     @State private var showsInProgressAlert = false
+    @State private var showsDiscardConfirm = false
+    @State private var showsFullScreenMap = false
 
     /// Distance, date, vehicle become read-only on a locked trip.
     private var isLocked: Bool { trip.isLocked }
@@ -58,7 +60,7 @@ struct TripEditor: View {
                                     .font(.caption)
                                     .foregroundColor(.secondary)
                             }
-                            Text("Mileage, date and vehicle can no longer be edited. Edits to purpose, customer and notes are recorded in the compliance audit log.")
+                            Text("Mileage, date, vehicle and type can no longer be edited. Edits to purpose, customer and notes are recorded in the compliance audit log.")
                                 .font(.caption)
                                 .foregroundColor(.secondary)
                                 .padding(.top, 4)
@@ -139,10 +141,16 @@ struct TripEditor: View {
 
             if !tripPoints.isEmpty {
                 Section("GPS track") {
-                    TripMapView(points: tripPoints)
-                        .frame(height: 180)
-                        .listRowInsets(EdgeInsets())
-                    Text("\(tripPoints.count) points recorded")
+                    Button {
+                        showsFullScreenMap = true
+                    } label: {
+                        TripMapView(points: tripPoints)
+                            .frame(height: 180)
+                            .listRowInsets(EdgeInsets())
+                            .allowsHitTesting(false)
+                    }
+                    .buttonStyle(.plain)
+                    Text("\(tripPoints.count) points recorded · tap the map to zoom in")
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }
@@ -232,9 +240,29 @@ struct TripEditor: View {
             }
             if isNew {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Discard", role: .destructive) { dismiss() }
+                    // This button used to dismiss instantly with no
+                    // confirmation — undermining the `.interactiveDismiss
+                    // Disabled()` a few lines up in RecordTripView, which
+                    // exists specifically because a fully GPS-measured,
+                    // unsaved trip shouldn't vanish from one ordinary tap
+                    // (round-1 UX review finding: the swipe was blocked,
+                    // but this button offered the identical, total,
+                    // unconfirmed loss).
+                    Button("Discard", role: .destructive) {
+                        showsDiscardConfirm = true
+                    }
                 }
             }
+        }
+        .confirmationDialog(
+            "Discard this trip?",
+            isPresented: $showsDiscardConfirm,
+            titleVisibility: .visible
+        ) {
+            Button("Discard", role: .destructive) { dismiss() }
+            Button("Keep editing", role: .cancel) { }
+        } message: {
+            Text("Its distance and route were measured by GPS and haven't been saved. This can't be undone.")
         }
         .task(id: trip.id) {
             guard !isNew else { return }
@@ -253,6 +281,19 @@ struct TripEditor: View {
             Button("OK") { dismiss() }
         } message: {
             Text("The car started moving again before you saved, so this was merged back into an ongoing drive. Your edits weren't saved — reclassify it once the drive ends.")
+        }
+        .fullScreenCover(isPresented: $showsFullScreenMap) {
+            NavigationStack {
+                TripMapView(points: tripPoints, isInteractive: true)
+                    .ignoresSafeArea()
+                    .navigationTitle("Route")
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) {
+                            Button("Close") { showsFullScreenMap = false }
+                        }
+                    }
+            }
         }
     }
 }

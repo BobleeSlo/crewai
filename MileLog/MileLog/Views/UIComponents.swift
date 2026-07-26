@@ -52,14 +52,24 @@ struct PrettyStepper: View {
 
             Spacer()
 
+            // 44×44pt tap targets (Apple's HIG minimum), not the previous
+            // 38×32 — this control is used for settings like "Lock trips
+            // after"/"End trip after" in an app whose own premise is being
+            // operated while getting in and out of a car, exactly the
+            // low-precision-tap condition the 44pt guideline exists for.
+            // Icon-only buttons also had no accessibilityLabel anywhere in
+            // the app; VoiceOver would only ever announce "minus"/"plus"
+            // with no indication of what they adjust (round-1 UX review
+            // finding).
             HStack(spacing: 0) {
                 Button { decrement() } label: {
                     Image(systemName: "minus")
                         .font(.system(size: 16, weight: .semibold))
-                        .frame(width: 38, height: 32)
+                        .frame(width: 44, height: 44)
                         .contentShape(Rectangle())
                 }
                 .disabled(value <= range.lowerBound)
+                .accessibilityLabel("Decrease \(label)")
 
                 Text("\(value) \(unit)")
                     .font(.body.monospacedDigit())
@@ -71,10 +81,11 @@ struct PrettyStepper: View {
                 Button { increment() } label: {
                     Image(systemName: "plus")
                         .font(.system(size: 16, weight: .semibold))
-                        .frame(width: 38, height: 32)
+                        .frame(width: 44, height: 44)
                         .contentShape(Rectangle())
                 }
                 .disabled(value >= range.upperBound)
+                .accessibilityLabel("Increase \(label)")
             }
             .buttonStyle(.plain)
             .foregroundColor(.accentColor)

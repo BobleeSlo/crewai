@@ -7,37 +7,32 @@ struct VehiclesView: View {
 
     /// Confirmation alert state for "Delete permanently" on an archived vehicle.
     @State private var permanentDeleteCandidate: Vehicle?
+    /// Swipe-to-delete on an active vehicle previously called
+    /// `store.deleteVehicle` directly with zero confirmation and no
+    /// after-the-fact explanation — unlike `VehicleEditView`'s own "Delete
+    /// vehicle" button, which explains the archive-vs-permanently-delete
+    /// distinction before acting. The same destructive action had two very
+    /// different levels of disclosure depending on which control the user
+    /// happened to use (round-1 UX review finding).
+    @State private var swipeDeleteCandidate: Vehicle?
 
     var body: some View {
         NavigationStack {
-            List {
-                if !store.activeVehicles.isEmpty {
-                    Section {
-                        ForEach(store.activeVehicles) { vehicle in
-                            vehicleRow(vehicle)
-                        }
-                        .onDelete { offsets in
-                            // Translate offsets in the filtered active list back to the full list.
-                            let ids = offsets.map { store.activeVehicles[$0].id }
-                            for id in ids {
-                                if let v = store.vehicle(id) { _ = store.deleteVehicle(v) }
-                            }
-                        }
-                    }
-                }
-
-                if !store.archivedVehicles.isEmpty {
-                    Section {
-                        ForEach(store.archivedVehicles) { vehicle in
-                            archivedRow(vehicle)
-                        }
-                    } header: {
-                        SectionHeaderLabel(title: "Archived",
-                                           systemImage: "archivebox")
-                    } footer: {
-                        Text("Archived vehicles stay attached to their historical trips and reports but don't appear in pickers. Restore or delete permanently if no trips reference them.")
-                            .font(.caption)
-                    }
+            Group {
+                if store.activeVehicles.isEmpty && store.archivedVehicles.isEmpty {
+                    // A brand-new account has zero vehicles, and nothing
+                    // else in the app works without at least one: Record's
+                    // "Start trip" is silently disabled with no on-screen
+                    // explanation, and auto-detect has no vehicle to ever
+                    // match against. Previously this screen was just a
+                    // blank list under the "Vehicles" title with no
+                    // explanation and only a small "+" as the sole
+                    // affordance — the one dead end a first-time user could
+                    // get stuck at with zero guidance (round-1 UX review
+                    // finding).
+                    emptyState
+                } else {
+                    vehiclesList
                 }
             }
             .navigationTitle("Vehicles")
@@ -46,6 +41,7 @@ struct VehiclesView: View {
                     Button { showingAdd = true } label: {
                         Image(systemName: "plus")
                     }
+                    .accessibilityLabel("Add vehicle")
                 }
             }
             .sheet(item: $editingVehicle) { vehicle in
@@ -71,7 +67,99 @@ struct VehiclesView: View {
             } message: { vehicle in
                 Text("\"\(vehicle.name)\" will be removed from your device and Supabase. Only do this if no trips reference this vehicle.")
             }
+            .confirmationDialog(
+                "Delete \"\(swipeDeleteCandidate?.name ?? "")\"?",
+                isPresented: Binding(
+                    get: { swipeDeleteCandidate != nil },
+                    set: { if !$0 { swipeDeleteCandidate = nil } }
+                ),
+                titleVisibility: .visible
+            ) {
+                Button("Delete", role: .destructive) {
+                    if let v = swipeDeleteCandidate { _ = store.deleteVehicle(v) }
+                    swipeDeleteCandidate = nil
+                }
+                Button("Cancel", role: .cancel) { swipeDeleteCandidate = nil }
+            } message: {
+                if let v = swipeDeleteCandidate, store.trips.contains(where: { $0.vehicleID == v.id }) {
+                    Text("This vehicle has trips attached. It will be archived so those records stay intact — you can restore it later from the Vehicles list.")
+                } else {
+                    Text("This vehicle has no trips and will be removed permanently.")
+                }
+            }
         }
+    }
+
+    private var vehiclesList: some View {
+        List {
+            if !store.activeVehicles.isEmpty {
+                Section {
+                    ForEach(store.activeVehicles) { vehicle in
+                        vehicleRow(vehicle)
+                    }
+                    .onDelete { offsets in
+                        // Ask for confirmation (with the same archive-vs-
+                        // delete explanation VehicleEditView's own delete
+                        // button gives) instead of deleting immediately.
+                        if let first = offsets.first {
+                            swipeDeleteCandidate = store.activeVehicles[first]
+                        }
+                    }
+                }
+            }
+
+            if !store.archivedVehicles.isEmpty {
+                Section {
+                    ForEach(store.archivedVehicles) { vehicle in
+                        archivedRow(vehicle)
+                    }
+                } header: {
+                    SectionHeaderLabel(title: "Archived",
+                                       systemImage: "archivebox")
+                } footer: {
+                    Text("Archived vehicles stay attached to their historical trips and reports but don't appear in pickers. Restore or delete permanently if no trips reference them.")
+                        .font(.caption)
+                }
+            }
+        }
+    }
+
+    // MARK: - Empty state
+
+    private var emptyState: some View {
+        VStack(spacing: 16) {
+            ZStack {
+                Circle()
+                    .fill(Theme.brandGradient)
+                    .frame(width: 120, height: 120)
+                    .opacity(0.12)
+                Image(systemName: "car.2.fill")
+                    .font(.system(size: 56, weight: .light))
+                    .foregroundStyle(Theme.brandGradient)
+            }
+            VStack(spacing: 6) {
+                Text("No vehicles yet")
+                    .font(.title3.bold())
+                Text("Add your car to start recording trips — pair its Bluetooth here too, so auto-detect can recognize it automatically.")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 32)
+            }
+            Button {
+                showingAdd = true
+            } label: {
+                Label("Add vehicle", systemImage: "plus")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 12)
+                    .background(Theme.brandGradient)
+                    .clipShape(Capsule())
+            }
+            .padding(.top, 4)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     // MARK: - Active vehicle row
@@ -402,8 +490,15 @@ struct VehicleEditView: View {
                     deletionMessage = mode == .soft
                         ? "Vehicle archived (kept for trip history)."
                         : "Vehicle deleted."
-                    // Pop after a brief pause so the user sees what happened.
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { dismiss() }
+                    // Pop after a brief pause so the user sees what happened
+                    // — actually shown now via the `.overlay` below.
+                    // `deletionMessage` was previously set but never
+                    // rendered anywhere in this file, so the soft-archive-
+                    // vs-hard-delete distinction this whole flow exists to
+                    // communicate never reached the user at the one moment
+                    // it's confirmed to have happened (round-1 UX review
+                    // finding).
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) { dismiss() }
                 }
                 Button("Cancel", role: .cancel) { }
             } message: {
@@ -424,6 +519,23 @@ struct VehicleEditView: View {
             .onAppear {
                 if wasLockedAtOpen == nil { wasLockedAtOpen = hasLockedTrips }
             }
+            .overlay {
+                if let deletionMessage {
+                    VStack(spacing: 10) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.system(size: 36))
+                            .foregroundStyle(Theme.brandGradient)
+                        Text(deletionMessage)
+                            .font(.subheadline.weight(.medium))
+                            .multilineTextAlignment(.center)
+                    }
+                    .padding(24)
+                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    .padding(40)
+                    .transition(.opacity)
+                }
+            }
+            .animation(.easeInOut(duration: 0.15), value: deletionMessage)
         }
     }
 

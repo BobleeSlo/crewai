@@ -1,13 +1,20 @@
 import SwiftUI
 import MapKit
 
-/// Renders the GPS polyline of a trip on a small inline map.
+/// Renders the GPS polyline of a trip on a map. Non-interactive by default
+/// for use as a small inline preview inside a scrolling Form (pinch/pan
+/// there would fight the Form's own scroll gesture) — pass
+/// `isInteractive: true` for a full-screen presentation, so a user can
+/// actually pinch-zoom to verify a route on what may be a tax-relevant
+/// record, which the inline preview alone never allowed (round-1 UX
+/// review finding).
 struct TripMapView: UIViewRepresentable {
     let points: [TripPointDTO]
+    var isInteractive: Bool = false
 
     func makeUIView(context: Context) -> MKMapView {
         let map = MKMapView()
-        map.isUserInteractionEnabled = false
+        map.isUserInteractionEnabled = isInteractive
         map.delegate = context.coordinator
         return map
     }

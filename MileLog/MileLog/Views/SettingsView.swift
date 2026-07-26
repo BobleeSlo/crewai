@@ -1,5 +1,6 @@
 import SwiftUI
 import CoreLocation
+import UIKit
 
 struct SettingsView: View {
     @EnvironmentObject var store: Store
@@ -79,13 +80,34 @@ struct SettingsView: View {
                     )
 
                     if store.settings.autoDetectEnabled && detector.permission != .authorizedAlways {
-                        Button {
-                            Task { await detector.requestEnable() }
-                        } label: {
-                            Label("Grant location permission", systemImage: "checkmark.shield")
-                                .frame(maxWidth: .infinity)
+                        // Once permission is actually denied, re-requesting
+                        // it (`detector.requestEnable()`) is a guaranteed
+                        // no-op — iOS never re-shows the system prompt,
+                        // `requestEnable()` just logs a warning nobody but
+                        // this app's own debug screen ever sees. The button
+                        // looked identically actionable in every state, but
+                        // silently did nothing in the one state a user is
+                        // most likely to be stuck in (round-1 UX review
+                        // finding).
+                        if detector.permission == .denied || detector.permission == .restricted {
+                            Button {
+                                if let url = URL(string: UIApplication.openSettingsURLString) {
+                                    UIApplication.shared.open(url)
+                                }
+                            } label: {
+                                Label("Open Settings", systemImage: "gear")
+                                    .frame(maxWidth: .infinity)
+                            }
+                            .buttonStyle(.borderedProminent)
+                        } else {
+                            Button {
+                                Task { await detector.requestEnable() }
+                            } label: {
+                                Label("Grant location permission", systemImage: "checkmark.shield")
+                                    .frame(maxWidth: .infinity)
+                            }
+                            .buttonStyle(.borderedProminent)
                         }
-                        .buttonStyle(.borderedProminent)
                     }
 
                     NavigationLink {

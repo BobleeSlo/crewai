@@ -1,5 +1,6 @@
 import SwiftUI
 import CoreLocation
+import UIKit
 
 struct RecordTripView: View {
     @EnvironmentObject var store: Store
@@ -51,7 +52,15 @@ struct RecordTripView: View {
 
                     if autoActive {
                         autoActiveHint
-                    } else if !location.authorized && !location.isTracking {
+                    } else if !location.authorized {
+                        // No longer gated on `!location.isTracking` — a
+                        // manual recording can no longer even start while
+                        // unauthorized (see LocationManager.start()), so
+                        // this now stays visible for exactly as long as the
+                        // real blocker exists, instead of disappearing the
+                        // instant the user taps a Start button that was
+                        // silently about to record nothing (round-1 UX
+                        // review finding).
                         permissionHint
                     }
                 }
@@ -254,7 +263,15 @@ struct RecordTripView: View {
             .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
             .shadow(color: buttonShadowColor, radius: 12, x: 0, y: 6)
         }
-        .disabled(selectedVehicleID == nil)
+        // Stopping must always stay available even if location access was
+        // revoked mid-recording (Settings can be changed while the app is
+        // backgrounded) — only starting a NEW recording requires
+        // authorization, matching LocationManager.start()'s own refusal
+        // (round-1 UX review finding: previously a denied-permission
+        // recording could still be "started" and would silently sit at
+        // 0.0 km forever).
+        .disabled(!location.isTracking && (selectedVehicleID == nil || !location.authorized))
+        .opacity(!location.isTracking && (selectedVehicleID == nil || !location.authorized) ? 0.45 : 1)
     }
 
     @ViewBuilder
@@ -302,11 +319,28 @@ struct RecordTripView: View {
     }
 
     private var permissionHint: some View {
-        Text("Allow location access to measure trip distance.")
-            .font(.footnote)
-            .foregroundColor(.secondary)
-            .multilineTextAlignment(.center)
-            .frame(maxWidth: .infinity)
+        // Distinguishes "hasn't been asked yet" (system prompt is likely
+        // still on screen, or about to be) from "the user already said
+        // no" — the denied case needs a way OUT (Settings), since tapping
+        // Start again does nothing (round-1 UX review finding).
+        VStack(spacing: 10) {
+            Text(location.permission == .denied || location.permission == .restricted
+                 ? "Location access is off, so this trip can't be measured. Turn it on in iOS Settings to start recording."
+                 : "Allow location access to measure trip distance.")
+                .font(.footnote)
+                .foregroundColor(.secondary)
+                .multilineTextAlignment(.center)
+
+            if location.permission == .denied || location.permission == .restricted {
+                Button("Open Settings") {
+                    if let url = URL(string: UIApplication.openSettingsURLString) {
+                        UIApplication.shared.open(url)
+                    }
+                }
+                .font(.footnote.weight(.semibold))
+            }
+        }
+        .frame(maxWidth: .infinity)
     }
 
     // MARK: - Actions

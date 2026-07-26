@@ -22,6 +22,16 @@ struct ReceiptsSection: View {
     @State private var showingSourcePicker = false
     @State private var showingCamera = false
     @State private var showingPhotosPicker = false
+    /// Holds the photo between "OCR finished" and "user tapped Save" —
+    /// nothing is uploaded/persisted while this is set. Previously the
+    /// code went straight from OCR to `upload()` with no step in between
+    /// at all, despite this file's own comment claiming "the user can
+    /// review the auto-filled amount... before tapping the next action" —
+    /// there was no next action to tap; whatever OCR guessed (or failed to
+    /// guess) was saved immediately (round-1 UX review finding). For a
+    /// record meant for tax/reimbursement, silently trusting an
+    /// unconfirmed OCR guess is a real accuracy problem.
+    @State private var pendingImage: UIImage?
 
     var body: some View {
         Section("Receipts") {
@@ -30,36 +40,19 @@ struct ReceiptsSection: View {
             }
             .onDelete(perform: deleteReceipts)
 
-            Picker("Type", selection: $newType) {
-                ForEach(ReceiptType.allCases) { Text($0.label).tag($0) }
-            }
-
-            HStack {
-                Text("Amount")
-                Spacer()
-                TextField("0.00", text: $newAmount)
-                    .keyboardType(.decimalPad)
-                    .multilineTextAlignment(.trailing)
-                Text("€").foregroundColor(.secondary)
-            }
-
-            Button {
-                showingSourcePicker = true
-            } label: {
-                if isUploading {
-                    HStack { ProgressView(); Text("Uploading…") }
-                } else if isScanning {
-                    HStack { ProgressView(); Text("Scanning receipt…") }
-                } else {
-                    Label("Add receipt photo", systemImage: "camera.fill")
+            if let pendingImage {
+                pendingReceiptReview(pendingImage)
+            } else {
+                Button {
+                    showingSourcePicker = true
+                } label: {
+                    if isScanning {
+                        HStack { ProgressView(); Text("Scanning receipt…") }
+                    } else {
+                        Label("Add receipt photo", systemImage: "camera.fill")
+                    }
                 }
-            }
-            .disabled(isUploading || isScanning)
-
-            if let scanHint {
-                Label(scanHint, systemImage: "sparkles")
-                    .font(.footnote)
-                    .foregroundColor(.blue)
+                .disabled(isScanning)
             }
 
             if let errorText {
@@ -97,6 +90,61 @@ struct ReceiptsSection: View {
         }
     }
 
+    /// The actual review step: photo thumbnail + editable type/amount
+    /// (pre-filled from OCR, but the user must explicitly confirm or
+    /// discard before anything is saved).
+    @ViewBuilder
+    private func pendingReceiptReview(_ image: UIImage) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(uiImage: image)
+                .resizable()
+                .scaledToFill()
+                .frame(width: 56, height: 56)
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+
+            VStack(alignment: .leading, spacing: 10) {
+                Picker("Type", selection: $newType) {
+                    ForEach(ReceiptType.allCases) { Text($0.label).tag($0) }
+                }
+                HStack {
+                    Text("Amount")
+                    Spacer()
+                    TextField("0.00", text: $newAmount)
+                        .keyboardType(.decimalPad)
+                        .multilineTextAlignment(.trailing)
+                    Text("€").foregroundColor(.secondary)
+                }
+                if let scanHint {
+                    Label(scanHint, systemImage: "sparkles")
+                        .font(.footnote)
+                        .foregroundColor(.blue)
+                }
+            }
+        }
+
+        HStack {
+            Button(role: .destructive) {
+                self.pendingImage = nil
+                newAmount = ""
+                scanHint = nil
+            } label: {
+                Text("Discard")
+            }
+            Spacer()
+            Button {
+                Task { await upload(image: image) }
+            } label: {
+                if isUploading {
+                    HStack { ProgressView(); Text("Saving…") }
+                } else {
+                    Text("Save receipt")
+                }
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled(isUploading)
+        }
+    }
+
     // MARK: - Photo handling
 
     private func handleLibraryPick(_ item: PhotosPickerItem) async {
@@ -112,21 +160,23 @@ struct ReceiptsSection: View {
     private func handleImage(_ image: UIImage) async {
         errorText = nil
         scanHint = nil
+        newAmount = ""
         defer { capturedImage = nil }
 
-        // 1. Run OCR first — the user can review the auto-filled amount
-        //    in the editor before tapping the next action.
+        // Run OCR, then STOP and hand off to the review step
+        // (`pendingReceiptReview`) — upload() no longer runs automatically
+        // from here. The user must explicitly tap "Save receipt" after
+        // seeing (and optionally correcting) what OCR guessed.
         isScanning = true
         if let detected = await ReceiptScanner.extractAmount(from: image) {
             newAmount = String(format: "%.2f", detected)
-            scanHint = String(format: "Auto-detected: € %.2f", detected)
+            scanHint = String(format: "Auto-detected: € %.2f — check it's correct.", detected)
         } else {
             scanHint = "Couldn't read an amount — enter it manually."
         }
         isScanning = false
 
-        // 2. Upload + persist.
-        await upload(image: image)
+        pendingImage = image
     }
 
     private func upload(image: UIImage) async {
@@ -154,8 +204,11 @@ struct ReceiptsSection: View {
             try await supabase.pushReceipt(saved, tripID: tripID)
             receipts.append(saved)
             newAmount = ""
-            // Keep scanHint visible briefly so the user sees the OCR result.
+            scanHint = nil
+            pendingImage = nil
         } catch {
+            // Leave pendingImage/newAmount in place on failure so the user
+            // can just tap Save again rather than re-taking the photo.
             errorText = "Upload failed: \(error.localizedDescription)"
         }
     }

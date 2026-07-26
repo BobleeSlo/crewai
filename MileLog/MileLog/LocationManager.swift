@@ -13,6 +13,11 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
     @Published var isTracking = false
     @Published var distanceKm: Double = 0
     @Published var authorized = false
+    /// Finer-grained than `authorized` — lets the UI tell "never asked yet"
+    /// apart from "the user actually said no," so it doesn't show a
+    /// "go to Settings" message before the system prompt has even been
+    /// answered (round-1 UX review finding).
+    @Published private(set) var permission: CLAuthorizationStatus = .notDetermined
 
     /// Set by MileLogApp so the manual recorder refuses to start while
     /// the auto detector has a trip in progress.
@@ -54,14 +59,24 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
         manager.requestWhenInUseAuthorization()
     }
 
-    /// Returns false if the manual recorder refused to start because the
-    /// auto-detect engine is already tracking a trip — the UI should show
-    /// a warning in that case to avoid double-recording.
+    /// Returns false if the manual recorder refused to start — either
+    /// because the auto-detect engine is already tracking a trip (the UI
+    /// should show a warning to avoid double-recording), or because
+    /// location access isn't authorized. The latter used to be missed
+    /// entirely: `start()` set `isTracking = true` unconditionally, so a
+    /// denied-permission recording looked fully "live" (pulsing dot,
+    /// ticking Stop button) while CoreLocation silently never delivered a
+    /// single fix — `didFailWithError` is an explicit no-op below — leaving
+    /// the user with a 0.0 km, GPS-less trip and zero indication anything
+    /// was ever wrong (round-1 UX review finding: this broke the app's
+    /// single most core task for anyone who'd declined the location
+    /// prompt).
     @discardableResult
     func start() -> Bool {
         if detector?.activeTrip != nil {
             return false
         }
+        guard authorized else { return false }
         distanceKm = 0
         lastLocation = nil
         startLocation = nil
@@ -138,6 +153,7 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
         let status = manager.authorizationStatus
         Task { @MainActor [weak self] in
             self?.authorized = (status == .authorizedWhenInUse || status == .authorizedAlways)
+            self?.permission = status
         }
     }
 
