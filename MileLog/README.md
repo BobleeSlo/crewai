@@ -57,7 +57,11 @@ for free with any Apple ID.
 
 1. Xcode → *File ▸ New ▸ Project ▸ iOS ▸ App*.
    - Product Name: `MileLog`, Interface: **SwiftUI**, Language: **Swift**.
-   - Minimum deployment target: **iOS 16.0** or later.
+   - Minimum deployment target: **iOS 17.0** or later.
+     *(iOS 17 is required — the code uses the two-parameter
+     `onChange(of:) { oldValue, newValue in }`, which is iOS 17+. Building
+     against iOS 16 fails on five call sites. Nothing in the app needs
+     iOS 18, so 17.0 is the correct floor.)*
 2. Delete the auto-generated `ContentView.swift` and `MileLogApp.swift`, then
    drag every file from this folder's `MileLog/` (the inner one) into the Xcode
    project navigator → *Copy items if needed*, *Create groups*.
