@@ -148,10 +148,13 @@ drop trigger if exists trips_aw on trips;
 create trigger trips_aw after insert or update on trips
   for each row execute function trip_after_write();
 
--- Once a trip is locked, mileage / date / vehicle become immutable, and
--- is_locked itself is a one-way ratchet (the app never sets it back to
+-- Once a trip is locked, mileage / date / vehicle / type become immutable,
+-- and is_locked itself is a one-way ratchet (the app never sets it back to
 -- false — locking is permanent by design, so an UPDATE that flips it back
--- is by definition unauthorized, not a legitimate app flow).
+-- is by definition unauthorized, not a legitimate app flow). trip_type is
+-- included because it directly determines the reimbursement figure the
+-- lock exists to freeze (round-12 adversarial review finding — it was
+-- omitted even though distance/vehicle/date already had this guard).
 create or replace function trip_lock_guard() returns trigger as $$
 begin
   if old.is_locked then
@@ -160,8 +163,9 @@ begin
        or new.odometer_end_km   is distinct from old.odometer_end_km
        or new.distance_km       is distinct from old.distance_km
        or new.vehicle_id        is distinct from old.vehicle_id
+       or new.trip_type         is distinct from old.trip_type
        or new.is_locked = false then
-      raise exception 'Trip is locked; mileage/date/vehicle cannot be changed, and it cannot be unlocked';
+      raise exception 'Trip is locked; mileage/date/vehicle/type cannot be changed, and it cannot be unlocked';
     end if;
   end if;
   return new;

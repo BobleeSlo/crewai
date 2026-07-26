@@ -13,6 +13,7 @@ struct TripEditor: View {
 
     @State private var tripPoints: [TripPointDTO] = []
     @State private var receipts: [Receipt] = []
+    @State private var showsStaleLockAlert = false
 
     /// Distance, date, vehicle become read-only on a locked trip.
     private var isLocked: Bool { trip.isLocked }
@@ -55,6 +56,15 @@ struct TripEditor: View {
                     }
                 }
                 .pickerStyle(.segmented)
+                // Type directly determines the reimbursement figure the
+                // lock exists to freeze (Trip.reimbursement() pays a
+                // different rate — or zero — per type), so it must be
+                // exactly as immutable as Distance below once locked.
+                // Previously only Distance had this guard, leaving the one
+                // field that actually controls the reported €-amount fully
+                // editable on an already-reported, locked trip (round-12
+                // adversarial review finding).
+                .disabled(isLocked)
             }
 
             Section("Details") {
@@ -127,8 +137,23 @@ struct TripEditor: View {
         .toolbar {
             ToolbarItem(placement: .confirmationAction) {
                 Button {
-                    onSave(trip)
-                    dismiss()
+                    // This screen's `@State trip` was seeded once, when it
+                    // was first pushed — it doesn't refresh just because the
+                    // trip got locked elsewhere while this screen stayed
+                    // open (e.g. "Apply locks now", or the automatic
+                    // lockAfterDays sweep re-running on foreground).
+                    // `Store.updateTrip`'s merge already prevents that from
+                    // corrupting anything (round-11 fix: mileage/type are
+                    // silently kept from the live record when locked), but
+                    // saving straight through would give zero indication
+                    // that an edit didn't actually apply (round-12
+                    // adversarial review finding) — check freshness first.
+                    if !isLocked, store.trips.first(where: { $0.id == trip.id })?.isLocked == true {
+                        showsStaleLockAlert = true
+                    } else {
+                        onSave(trip)
+                        dismiss()
+                    }
                 } label: {
                     Text("Save")
                         .font(.subheadline.weight(.semibold))
@@ -149,6 +174,14 @@ struct TripEditor: View {
             guard !isNew else { return }
             tripPoints = (try? await supabase.pullTripPoints(for: trip.id)) ?? []
             receipts = (try? await supabase.pullReceipts(for: trip.id)) ?? []
+        }
+        .alert("This trip was locked while open", isPresented: $showsStaleLockAlert) {
+            Button("OK") {
+                onSave(trip)
+                dismiss()
+            }
+        } message: {
+            Text("It's now locked, so mileage and type can't be changed — those edits were discarded. Purpose, customer and notes were saved.")
         }
     }
 }

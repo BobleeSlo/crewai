@@ -160,10 +160,17 @@ final class Store: ObservableObject {
         merged.purpose = trip.purpose
         merged.customerName = trip.customerName
         merged.notes = trip.notes
-        merged.type = trip.type
         merged.reviewedAt = trip.reviewedAt
         if !previous.isLocked {
+            // `type` directly determines the reimbursement figure the lock
+            // exists to freeze (Trip.reimbursement() pays a different rate —
+            // or zero — per type) — it must be exactly as immutable as
+            // distance once locked. Previously only distanceKm was gated
+            // here, leaving the one field that actually controls the
+            // reported €-amount silently changeable via this same stale-
+            // snapshot path (round-12 adversarial review finding).
             merged.distanceKm = trip.distanceKm
+            merged.type = trip.type
         }
         trips[idx] = merged
         save()
@@ -353,9 +360,29 @@ final class Store: ObservableObject {
 
     func updateVehicle(_ vehicle: Vehicle) {
         guard let idx = vehicles.firstIndex(where: { $0.id == vehicle.id }) else { return }
-        vehicles[idx] = vehicle
+        // Merges only the fields VehicleEditView's UI actually lets the
+        // user change onto the CURRENT live vehicle, the same reasoning as
+        // updateTrip's merge (round-11 fix): a NavigationLink/sheet-pushed
+        // screen's @State is seeded once and won't refresh just because
+        // the store changes elsewhere while it stays open. `isActive` in
+        // particular is never edited from this screen — it's flipped
+        // externally by deleteVehicle()/restoreVehicle() — so a stale
+        // snapshot must never be allowed to silently revert it (round-12
+        // adversarial review finding: this was the one remaining place
+        // still using the blind-overwrite pattern updateTrip was fixed
+        // for).
+        var merged = vehicles[idx]
+        merged.name = vehicle.name
+        merged.licensePlate = vehicle.licensePlate
+        merged.type = vehicle.type
+        merged.defaultTripType = vehicle.defaultTripType
+        merged.bluetoothName = vehicle.bluetoothName
+        merged.bluetoothUID = vehicle.bluetoothUID
+        merged.seatCount = vehicle.seatCount
+        merged.vehicleTypeDescription = vehicle.vehicleTypeDescription
+        vehicles[idx] = merged
         save()
-        push(vehicle)
+        push(merged)
     }
 
     func deleteVehicle(at offsets: IndexSet) {
