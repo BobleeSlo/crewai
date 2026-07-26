@@ -16,6 +16,7 @@ struct ReportSelectionView: View {
 
     @State private var selected: Set<UUID>
     @State private var result: PDFReporter.Result?
+    @State private var generationFailed = false
 
     init(
         title: String,
@@ -86,6 +87,17 @@ struct ReportSelectionView: View {
                     }
                     .buttonStyle(.borderedProminent)
                 }
+            } else if generationFailed {
+                // PDFReporter now returns nil on a write failure instead of
+                // a "successful" Result pointing at a missing/corrupt file
+                // — but tapping Generate and having nothing happen, with
+                // no explanation, is its own confusing dead end for what's
+                // often the actual tax deliverable the user needs (round-2
+                // UX review finding).
+                Section {
+                    Text("Couldn't create the PDF — check available storage and try again.")
+                        .foregroundColor(.red)
+                }
             }
         }
         .navigationTitle(title)
@@ -97,6 +109,7 @@ struct ReportSelectionView: View {
             ToolbarItem(placement: .confirmationAction) {
                 Button("Generate") {
                     result = generate(selectedTrips)
+                    generationFailed = (result == nil)
                 }
                 .disabled(selected.isEmpty)
             }
@@ -108,19 +121,23 @@ struct ReportSelectionView: View {
             Button("Select all") {
                 selected = Set(candidateTrips.map(\.id))
                 result = nil
+                generationFailed = false
             }
             Button("Deselect all", role: .destructive) {
                 selected.removeAll()
                 result = nil
+                generationFailed = false
             }
             Divider()
             Button("Business only") {
                 selected = Set(candidateTrips.filter { $0.type == .business }.map(\.id))
                 result = nil
+                generationFailed = false
             }
             Button("Commute only") {
                 selected = Set(candidateTrips.filter { $0.type == .commute }.map(\.id))
                 result = nil
+                generationFailed = false
             }
         } label: {
             Image(systemName: "checklist")
@@ -131,5 +148,6 @@ struct ReportSelectionView: View {
     private func toggle(_ id: UUID) {
         if selected.contains(id) { selected.remove(id) } else { selected.insert(id) }
         result = nil   // invalidate the PDF — user must regenerate with new selection
+        generationFailed = false
     }
 }

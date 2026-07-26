@@ -158,7 +158,13 @@ enum PDFReporter {
 
         let filename = String(format: "MileLog-OwnCar-%04d-%02d.pdf", year, month)
         let url = FileManager.default.temporaryDirectory.appendingPathComponent(filename)
-        try? data.write(to: url)
+        // A write failure (low storage, sandbox hiccup) previously still
+        // returned a "successful" Result, so ReportSelectionView showed a
+        // normal-looking "Share PDF" button pointing at a missing/corrupt
+        // file — for what's often the actual tax deliverable the user is
+        // about to hand an accountant, with no error path at all (round-2
+        // UX review finding).
+        guard (try? data.write(to: url)) != nil else { return nil }
         return Result(url: url, tripCount: monthly.count, headlineKm: businessKm + commuteKm)
     }
 
@@ -262,7 +268,10 @@ enum PDFReporter {
                               year, month)
             .replacingOccurrences(of: " ", with: "-")
         let url = FileManager.default.temporaryDirectory.appendingPathComponent(filename)
-        try? data.write(to: url)
+        // See generateMonthlyOwnCar's identical guard: a silent write
+        // failure previously still returned a "successful" Result (round-2
+        // UX review finding).
+        guard (try? data.write(to: url)) != nil else { return nil }
         return Result(url: url, tripCount: monthly.count, headlineKm: totalKm)
     }
 

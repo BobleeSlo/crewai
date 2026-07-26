@@ -127,6 +127,13 @@ struct ReceiptsSection: View {
                 self.pendingImage = nil
                 newAmount = ""
                 scanHint = nil
+                // A failed "Save receipt" leaves errorText set (by design,
+                // so the user can just retry without re-taking the photo)
+                // — but if they Discard instead of retrying, that error
+                // was orphaned here forever, left on screen with no
+                // pending receipt left to explain it (round-2 UX review
+                // finding).
+                errorText = nil
             } label: {
                 Text("Discard")
             }
@@ -209,7 +216,11 @@ struct ReceiptsSection: View {
         } catch {
             // Leave pendingImage/newAmount in place on failure so the user
             // can just tap Save again rather than re-taking the photo.
-            errorText = "Upload failed: \(error.localizedDescription)"
+            // Previously showed the raw SDK error string (round-2 UX
+            // review finding) — a network/storage failure is common
+            // enough here (photographing a receipt right after a drive,
+            // often with weak signal) to deserve plain-language copy.
+            errorText = "Couldn't save the receipt — check your connection and try again."
         }
     }
 

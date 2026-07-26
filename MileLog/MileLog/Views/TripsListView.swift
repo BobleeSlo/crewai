@@ -2,6 +2,14 @@ import SwiftUI
 
 struct TripsListView: View {
     @EnvironmentObject var store: Store
+    /// Swipe-to-delete on a trip previously deleted immediately with zero
+    /// confirmation — unlike VehiclesView's identical gesture, which got a
+    /// confirmation dialog specifically because vehicles deserved that
+    /// protection. A trip is the app's actual core record (GPS-measured,
+    /// possibly already-classified for tax purposes) and is strictly
+    /// harder to recreate than a vehicle entry, yet had LESS protection
+    /// (round-2 UX review finding).
+    @State private var deleteCandidate: Trip?
 
     var body: some View {
         NavigationStack {
@@ -40,7 +48,9 @@ struct TripsListView: View {
                         .deleteDisabled(trip.isLocked)
                     }
                     .onDelete { offsets in
-                        store.deleteTrips(section.trips, at: offsets)
+                        if let first = offsets.first {
+                            deleteCandidate = section.trips[first]
+                        }
                     }
                 } header: {
                     MonthSectionHeader(section: section)
@@ -50,6 +60,24 @@ struct TripsListView: View {
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
         .background(backgroundWash)
+        .confirmationDialog(
+            "Delete this trip?",
+            isPresented: Binding(
+                get: { deleteCandidate != nil },
+                set: { if !$0 { deleteCandidate = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button("Delete", role: .destructive) {
+                if let trip = deleteCandidate {
+                    store.deleteTrips([trip], at: IndexSet(integer: 0))
+                }
+                deleteCandidate = nil
+            }
+            Button("Cancel", role: .cancel) { deleteCandidate = nil }
+        } message: {
+            Text("Its mileage and any classification will be permanently removed. This can't be undone.")
+        }
     }
 
     private var backgroundWash: some View {

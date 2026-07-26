@@ -142,8 +142,14 @@ final class NotificationManager: NSObject, ObservableObject, UNUserNotificationC
             // Logging this explicitly closes what was previously a totally
             // silent, undiagnosable no-op (round-2 adversarial review
             // finding) — the tap is still lost, but now traceable.
-            if detector?.activeTrip?.id == tripID {
-                detectionLog?.log("Classify tap for \(idString.prefix(8)) ignored — that trip is back in progress (merged with continued driving) and will be reclassified when it next ends.",
+            if let active = detector?.activeTrip, active.id == tripID {
+                // Uses the trip's own start time rather than the opaque
+                // truncated id — even if someone opens this debug screen
+                // (told to by support, or just curious), a raw UUID gives
+                // no way to tell which actual drive it's about (round-2 UX
+                // review finding).
+                let when = active.startedAt.formatted(date: .abbreviated, time: .shortened)
+                detectionLog?.log("Classify tap for the \(when) trip ignored — it's back in progress (merged with continued driving) and will be reclassified when it next ends.",
                                    level: .warning)
             } else {
                 detectionLog?.log("Classify tap for \(idString.prefix(8)) ignored — trip no longer found.", level: .warning)
@@ -178,11 +184,15 @@ final class NotificationManager: NSObject, ObservableObject, UNUserNotificationC
             // opportunity.
             trip.reviewedAt = Date()
             store.updateTrip(trip)
+            // References the trip's own start time rather than the opaque
+            // truncated id, matching the fix above (round-2 UX review
+            // finding).
+            let when = trip.startedAt.formatted(date: .abbreviated, time: .shortened)
             if wasLocked {
-                detectionLog?.log("Classify tap for \(idString.prefix(8)) ignored — trip was locked before the tap was handled; classification not changed.",
+                detectionLog?.log("Classify tap for the \(when) trip ignored — it was locked before the tap was handled; classification not changed.",
                                    level: .warning)
             } else {
-                detectionLog?.log("Classified \(idString.prefix(8)) as \(newType.label) via notification")
+                detectionLog?.log("Classified the \(when) trip as \(newType.label) via notification")
             }
         }
         // Default action (UNNotificationDefaultActionIdentifier) → app opens to trips list naturally.

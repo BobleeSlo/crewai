@@ -239,8 +239,14 @@ struct SettingsView: View {
                         TextField("Company address", text: $store.settings.companyAddress)
                         TextField("Company location (mesto)", text: $store.settings.companyLocation)
                         TextField("Driver name", text: $store.settings.driverName)
-                        TextField("Koristnik po nalogu", text: $store.settings.tripBeneficiary)
-                        TextField("Na relaciji", text: $store.settings.tripArea)
+                        // Every sibling field above has an English gloss;
+                        // these two didn't, breaking the pattern the rest
+                        // of the section establishes and leaving anyone
+                        // unfamiliar with these specific Slovenian
+                        // administrative terms with no in-app clue what to
+                        // type (round-2 UX review finding).
+                        TextField("Koristnik po nalogu (beneficiary)", text: $store.settings.tripBeneficiary)
+                        TextField("Na relaciji (area/route)", text: $store.settings.tripArea)
 
                         Text("Printed in the potni nalog header. Per-vehicle seat count and vehicle type are set on the vehicle itself.")
                             .font(.footnote)

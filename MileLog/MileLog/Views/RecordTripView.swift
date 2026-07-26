@@ -150,7 +150,16 @@ struct RecordTripView: View {
         switch detector.permission {
         case .authorizedAlways:
             return detector.isEnabled ? "Watching for trips" : "Starting…"
-        case .authorizedWhenInUse, .notDetermined:
+        case .notDetermined:
+            // Distinct from .authorizedWhenInUse below: telling the user
+            // to "open Settings" here was actively wrong — iOS won't show
+            // a Location entry for an app it's never asked permission for
+            // yet, and this state is genuinely reachable right after
+            // toggling auto-detect on, while the system prompt is still
+            // pending (round-2 UX review finding). Matches SettingsView's
+            // own already-correct copy for this same case.
+            return "Waiting for location permission…"
+        case .authorizedWhenInUse:
             return "Needs 'Always' location — open Settings"
         case .denied, .restricted:
             return "Location denied — enable in iOS Settings"

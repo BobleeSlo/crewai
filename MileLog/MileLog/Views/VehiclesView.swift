@@ -427,6 +427,14 @@ struct VehicleEditView: View {
                     }
                 }
             }
+            // The delete-confirmation overlay below (round-1 UX review
+            // fix) is a small centered card, not a blocking scrim —
+            // without this, every field, Save, and "Delete vehicle" stay
+            // live and tappable for the full 0.9s before the sheet
+            // dismisses. A stray tap on "Delete vehicle" again during that
+            // window re-opens the confirmation on a vehicle that's already
+            // mid-teardown (round-2 UX review finding).
+            .disabled(deletionMessage != nil)
             .navigationTitle(isNew ? "Add vehicle" : "Edit vehicle")
             .navigationBarTitleDisplayMode(.inline)
             .keyboardDoneToolbar()
