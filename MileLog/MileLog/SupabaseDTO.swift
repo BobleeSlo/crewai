@@ -59,6 +59,11 @@ struct TripDTO: Codable {
     var notes: String?
     var is_locked: Bool
     var locked_at: Date?
+    /// Missing here was a confirmed round-4 adversarial review finding: it
+    /// silently defeated round 3's whole reviewedAt mechanism the moment
+    /// cloud sync was involved, since a synced trip decoded back to
+    /// reviewedAt == nil regardless of what was set locally.
+    var reviewed_at: Date?
 
     init(from t: Trip, userId: UUID) {
         id = t.id
@@ -79,6 +84,7 @@ struct TripDTO: Codable {
         notes = t.notes
         is_locked = t.isLocked
         locked_at = t.lockedAt
+        reviewed_at = t.reviewedAt
     }
 
     func toTrip() -> Trip {
@@ -101,6 +107,7 @@ struct TripDTO: Codable {
         trip.endLat = end_lat
         trip.endLng = end_lng
         trip.lockedAt = locked_at
+        trip.reviewedAt = reviewed_at
         return trip
     }
 }

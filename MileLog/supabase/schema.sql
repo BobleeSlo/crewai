@@ -55,6 +55,7 @@ create table if not exists trips (
   reimbursement_amount_eur numeric(10,2),
   notes text,
   is_locked boolean default false,
+  reviewed_at timestamptz,
   created_at timestamptz default now(),
   updated_at timestamptz default now()
 );

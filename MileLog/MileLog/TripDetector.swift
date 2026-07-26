@@ -484,9 +484,12 @@ final class TripDetector: NSObject, ObservableObject {
         // file already accounts for elsewhere) can "wander" tens to
         // hundreds of metres between callbacks, producing a false-positive
         // automotive-movement confirmation from jitter alone rather than a
-        // real drive (adversarial review finding). Matches the same 50 m
-        // ceiling LocationManager's manual recorder already uses.
-        guard location.horizontalAccuracy >= 0, location.horizontalAccuracy < 50 else { return }
+        // real drive (adversarial review finding). Scaled to the active
+        // energy mode rather than one shared constant — a fixed 50m ceiling
+        // was self-inconsistent with lowPower's own ~100m accuracy target
+        // (round-4 adversarial review finding).
+        guard location.horizontalAccuracy >= 0,
+              location.horizontalAccuracy < store.settings.energyMode.maxAcceptableGPSAccuracy else { return }
 
         let kmh = max(0, location.speed) * 3.6
         if kmh > c.maxSpeedKmh { c.maxSpeedKmh = kmh }
@@ -1106,12 +1109,15 @@ final class TripDetector: NSObject, ObservableObject {
         // inflating distanceKm and indefinitely refreshing lastMovementAt —
         // recreating this app's founding failure mode (a trip that never
         // ends) via GPS noise instead of the already-fixed Bluetooth vector
-        // (adversarial review finding). Matches the same 50 m ceiling
-        // LocationManager's manual recorder already uses. Diagnostics above
+        // (adversarial review finding). Scaled to the active energy mode
+        // rather than one shared constant — a fixed 50m ceiling was self-
+        // inconsistent with lowPower's own ~100m accuracy target (round-4
+        // adversarial review finding). Diagnostics above
         // (lastLocationAt/lastAccuracy/lastSpeedKmh) and the persist below
         // still reflect this fix regardless — only distance/lastMovementAt
         // accumulation is gated.
-        if location.horizontalAccuracy >= 0, location.horizontalAccuracy < 50 {
+        if location.horizontalAccuracy >= 0,
+           location.horizontalAccuracy < store.settings.energyMode.maxAcceptableGPSAccuracy {
             let previous = CLLocation(latitude: trip.lastLat, longitude: trip.lastLng)
             let metres = location.distance(from: previous)
             if metres > 10 {

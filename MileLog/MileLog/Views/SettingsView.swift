@@ -249,7 +249,7 @@ struct SettingsView: View {
                 Section {
                     if let exportURL {
                         ShareLink(item: exportURL) {
-                            Label("Export \(store.trips.count) trips as CSV",
+                            Label("Export \(store.exportableTripCount) trips as CSV",
                                   systemImage: "tablecells")
                         }
                     } else {

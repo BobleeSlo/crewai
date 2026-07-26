@@ -97,14 +97,39 @@ final class Store: ObservableObject {
 
     // MARK: - Trips
 
+    /// Upserts by id rather than a bare append. A plain append could
+    /// otherwise leave two entries sharing the same id — reachable via
+    /// TripDetector's merge/reclaim mechanism: `resumeTrip` deliberately
+    /// leaves a superseded trip's cloud row in place (see its own comment)
+    /// rather than deleting it, so a sync cycle that pulls that stale row
+    /// back into `trips` while the same id's trip is still active locally,
+    /// followed by that trip eventually re-ending for real, would otherwise
+    /// append a second entry instead of replacing the stale one — double-
+    /// counting distance/reimbursement in every total, and making
+    /// `deleteTrips`/`updateTrip` (both id-keyed) act on the wrong copy
+    /// (round-4 adversarial review finding).
     func addTrip(_ trip: Trip) {
+        trips.removeAll { $0.id == trip.id }
         trips.append(trip)
         save()
         push(trip)
     }
 
+    /// Falls back to inserting (via `addTrip`) if the trip isn't found
+    /// rather than silently no-op-ing. Reachable when a trip being edited
+    /// gets merged/reclaimed back into an in-progress drive in the
+    /// background while the edit sheet is still open — the id genuinely
+    /// isn't in `trips` at save time, but the user's edit (e.g. tapping
+    /// Save on the classify screen, which also sets `reviewedAt`) shouldn't
+    /// silently vanish with a false "saved" confirmation (round-4
+    /// adversarial review finding). If the trip later re-ends for real
+    /// under the same id, `addTrip`'s upsert-by-id above correctly replaces
+    /// this reinserted copy rather than duplicating it.
     func updateTrip(_ trip: Trip) {
-        guard let idx = trips.firstIndex(where: { $0.id == trip.id }) else { return }
+        guard let idx = trips.firstIndex(where: { $0.id == trip.id }) else {
+            addTrip(trip)
+            return
+        }
         let previous = trips[idx]
         trips[idx] = trip
         save()
@@ -237,21 +262,48 @@ final class Store: ObservableObject {
 
     // MARK: - Cloud sync
 
-    /// Called once after sign-in: push any local changes the cloud hasn't seen,
-    /// then replace local state with whatever the cloud has.
+    /// Called once after sign-in: push any local changes the cloud hasn't
+    /// seen, then merge in anything the cloud has that's missing locally.
+    ///
+    /// Deliberately a MERGE, not the previous "replace local with whatever
+    /// the cloud returns" — that was a real, confirmed data-loss risk
+    /// (round-4 adversarial review finding): `pushTrip`/`pushVehicle` above
+    /// are best-effort (`try?`, silently swallowed on failure, plausible
+    /// given this app's own well-documented pattern of poor connectivity
+    /// right around the app-relaunch events that also trigger this sync),
+    /// so a trip that failed to push and then got replaced by a pull that
+    /// never received it would be gone for good. Keeping every local
+    /// trip/vehicle unconditionally and only ADDING cloud entries not
+    /// already present locally (by id) trades away automatically adopting
+    /// a same-id edit made on a different device — an acceptable cost for
+    /// this single-device-in-practice app, against a guarantee of never
+    /// silently destroying this device's own data.
+    ///
+    /// The currently-active auto-detected trip's id (if any) is excluded
+    /// from what gets pulled in: `TripDetector.resumeTrip` deliberately
+    /// leaves a superseded trip's cloud row in place across a merge/reclaim
+    /// (see its own comment) rather than deleting it, trusting that trip's
+    /// eventual real end to overwrite it — a stale cloud row under that
+    /// same id re-entering `trips` as a "completed" ghost while the trip is
+    /// still genuinely in progress would misrepresent it as done and,
+    /// combined with a bare append, could double-count its distance
+    /// (round-4 adversarial review finding; `addTrip`'s upsert-by-id above
+    /// is the second half of closing this).
     func initialSync(via supabase: SupabaseService) async {
         self.supabase = supabase
 
-        // Push local items first so they survive the pull-replace below.
         for vehicle in vehicles { try? await supabase.pushVehicle(vehicle) }
         for trip in trips       { try? await supabase.pushTrip(trip) }
         try? await supabase.pushSettings(settings)
 
-        if let cloudVehicles = try? await supabase.pullVehicles(), !cloudVehicles.isEmpty {
-            vehicles = cloudVehicles
+        if let cloudVehicles = try? await supabase.pullVehicles() {
+            let localIDs = Set(vehicles.map(\.id))
+            vehicles += cloudVehicles.filter { !localIDs.contains($0.id) }
         }
         if let cloudTrips = try? await supabase.pullTrips() {
-            trips = cloudTrips
+            let localIDs = Set(trips.map(\.id))
+            let activeID = detector?.activeTrip?.id
+            trips += cloudTrips.filter { !localIDs.contains($0.id) && $0.id != activeID }
         }
         if let cloudSettings = try? await supabase.pullSettings() {
             settings = cloudSettings
@@ -270,6 +322,11 @@ final class Store: ObservableObject {
     }
 
     // MARK: - CSV export
+
+    /// The count `exportCSV()` will actually write — kept in sync with its
+    /// own filter so UI copy quoting a trip count doesn't overstate it
+    /// (round-4 adversarial review finding).
+    var exportableTripCount: Int { trips.filter { $0.distanceKm > 0 }.count }
 
     /// Writes a CSV of all trips to a temporary file and returns its URL (for ShareLink / email).
     func exportCSV() -> URL? {
