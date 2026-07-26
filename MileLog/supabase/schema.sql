@@ -11,7 +11,7 @@ create table if not exists vehicles (
   name text not null,
   license_plate text not null default '',
   vehicle_type text not null check (vehicle_type in ('own','company')),
-  default_purpose text default 'business' check (default_purpose in ('business','private','commute')),
+  default_trip_type text default 'business' check (default_trip_type in ('business','private','commute')),
   current_odometer_km integer default 0,
   is_active boolean default true,
   seat_count integer default 5,
@@ -205,7 +205,7 @@ create trigger trips_lock_delete before delete on trips
 -- guarantee via a table that guard was never watching (round-18 finding
 -- for vehicle_type, round-19 finding for the rest). Frozen the same way:
 -- once any trip referencing this vehicle is locked, none of these can
--- change. default_purpose (defaultTripType) and Bluetooth pairing are
+-- change. default_trip_type (defaultTripType) and Bluetooth pairing are
 -- exempt — neither is ever printed on a report or affects an
 -- already-classified trip.
 create or replace function vehicle_type_lock_guard() returns trigger as $$

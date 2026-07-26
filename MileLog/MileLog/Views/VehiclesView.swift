@@ -191,6 +191,17 @@ struct VehicleEditView: View {
     @State private var showingDeleteConfirm = false
     @State private var deletionMessage: String?
     @State private var showsStaleLockAlert = false
+    /// Snapshot of `hasLockedTrips` taken once, when the screen first
+    /// appears (can't be captured in `init` — `store` isn't available via
+    /// `@EnvironmentObject` until after init). Lets the Save button detect
+    /// a genuine LOCKED-WHILE-OPEN transition instead of just "is this
+    /// vehicle locked right now" — without it, any vehicle older than
+    /// `lockAfterDays` (7 by default, and locking never reverses) would
+    /// permanently show the "this vehicle changed while open" alert on
+    /// every single save, including no-op saves and edits to fields that
+    /// were never locked at all, which round 23's adversarial review
+    /// caught as a false-alarm regression in round 22's own fix.
+    @State private var wasLockedAtOpen: Bool?
 
     private var saveButtonEnabled: Bool {
         !vehicle.name.trimmingCharacters(in: .whitespaces).isEmpty
@@ -345,7 +356,17 @@ struct VehicleEditView: View {
                         // before that point — unlike TripEditor's identical
                         // case, which alerts the user instead of a silent
                         // "success" (round-22 adversarial review finding).
-                        if !isNew && hasLockedTrips {
+                        //
+                        // Must compare against `wasLockedAtOpen`, not just
+                        // today's `hasLockedTrips` — a vehicle older than
+                        // lockAfterDays is permanently locked (locking never
+                        // reverses), so checking only the current value
+                        // would pop this alert on EVERY save of that
+                        // vehicle forever, including no-op saves and edits
+                        // to fields that were never locked at all (round-23
+                        // adversarial review finding: round 22's own fix
+                        // had this exact false-alarm regression).
+                        if !isNew && wasLockedAtOpen == false && hasLockedTrips {
                             showsStaleLockAlert = true
                         } else {
                             if isNew {
@@ -399,6 +420,9 @@ struct VehicleEditView: View {
                 }
             } message: {
                 Text("It now has a locked (already-reported) trip, so its name, plate, type, and Potni Nalog details can't be changed here — those edits were discarded.")
+            }
+            .onAppear {
+                if wasLockedAtOpen == nil { wasLockedAtOpen = hasLockedTrips }
             }
         }
     }

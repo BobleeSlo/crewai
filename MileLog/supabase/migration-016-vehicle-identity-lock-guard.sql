@@ -11,7 +11,7 @@
 --   (round-19 adversarial review finding: the third instance of the
 --   "trip lock protects the trip row but not a mutable dependency it
 --   renders through" pattern, following trip_type in round 12 and
---   vehicle_type in round 18). default_purpose (defaultTripType) and
+--   vehicle_type in round 18). default_trip_type (defaultTripType) and
 --   Bluetooth pairing are exempt: neither is ever printed on a report or
 --   affects an already-classified trip.
 --

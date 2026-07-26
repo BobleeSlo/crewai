@@ -489,6 +489,24 @@ Tally: 1 Medium (−4) = 100 − 4 = **96%**
 
 The score crossed the user's 95% target for the first time this round. Given the trajectory's history — every prior high score (78.5, 90.5, 89.5) was followed by a real finding in a different area on the very next round, and the round 20→21 saga showed that even a fix built to close one round's finding can introduce its own bug — a single round above target isn't itself proof of stability. Checking with the user on how to proceed from here.
 
+## Round 23 review: Success Score 90.5/100 — the decisive confirmation round
+
+After round 22 crossed the 95% target for the first time, the user was asked how to proceed given this loop's history of every prior high score being followed by a real finding on the very next round. They chose: run exactly one more confirmation round, and declare the loop complete if it comes back clean. Round 23 was explicitly briefed as that decisive round and told to be maximally rigorous. It read every Swift source file and every SQL migration in full (not sampled) and found a real regression in round 22's own fix — so per the agreed plan, the loop continues.
+
+Tally: 1 High (−8), 1 Low (−1.5) = 100 − 9.5 = **90.5%**
+
+### High
+
+1. **Round 22's vehicle staleness alert fired on every save of any vehicle with locked-trip history, not just on a genuine mid-edit transition — a false "your edits were discarded" message in what becomes the single most common vehicle-edit path.** The Save button's guard (`!isNew && hasLockedTrips`) re-checked `hasLockedTrips` live at Save time with no snapshot of what it was when the sheet opened — unlike `TripEditor`'s correct implementation of the identical pattern, which detects a genuine transition using a value frozen at screen-open time. Since locking is a one-way ratchet and `lockAfterDays` defaults to 7, any vehicle older than about a week permanently has `hasLockedTrips == true` — so from that point on, *every single save* (including no-op saves and edits to fields that were never locked at all, like Bluetooth re-pairing) popped a factually false "this vehicle changed while open" alert. No data was actually lost (tapping OK still correctly saves the exempt fields), but it actively misinformed a compliance-focused user base about their own records on the app's most common vehicle-edit path, undermining the credibility of the genuine alert for the rare case it exists to catch. **Fixed**: added `wasLockedAtOpen`, captured once via `.onAppear` (can't be captured in `init` since `@EnvironmentObject var store` isn't available until after init) — the Save button now only shows the alert when the vehicle transitions from *not* locked at open to locked now (`wasLockedAtOpen == false && hasLockedTrips`), matching `TripEditor`'s transition-detection semantics exactly.
+
+### Low
+
+2. **`schema.sql`'s base `vehicles` table created a dead `default_purpose` column with its own CHECK constraint, while the app exclusively reads/writes a *different* column, `default_trip_type`, which only ever existed via `migration-002`'s `ALTER TABLE ADD COLUMN`.** A hypothetical fresh install running only `schema.sql` (no migrations) would be missing the column the app actually needs; running schema.sql + all migrations (the established convention) left two similarly-named, easily-confused columns, one of them permanently dead — compounded by two comments (in `schema.sql` and `migration-016`) that described the two as if they were the same column. No live-account impact (real accounts were created via migrations, not this snapshot file), but a real, confusing inconsistency. **Fixed**: renamed `schema.sql`'s base column to `default_trip_type` (matching what `migration-002` already adds and what the app actually uses) and corrected both misleading comments — no new migration needed since no real account was ever bootstrapped from the old column name.
+
+### Confirmed still closed / correct from prior rounds
+
+An exhaustive, full-file re-read (not sampled) of every Swift source file and every SQL migration found nothing else. All three specifically stress-tested areas held: `Store.updateTrip`'s merge and its interaction with `TripDetector.resumeTrip`/`endTrip` (including tracing the specific case where a resumed trip's stale geocode Task finds nothing in `store.trips` — confirmed correct, intentional no-op, not a bug); the vehicle-lock mechanism's core data protection (`Store.updateVehicle`'s field gate and the DB trigger agree exactly on which fields freeze, both correctly exempting `defaultTripType`/Bluetooth); and `Store.push`'s log-and-retry behavior (trips and vehicles are structurally identical, matching round 21's decision with no divergence). Both major sagas (cross-account leak, `updateTrip` merge staleness) re-verified closed.
+
 ## What's next
 
-Round 23 is queued next per the user's standing instruction to keep iterating until the score exceeds 95%.
+Round 24 is queued next — the confirmation round found a real (though contained) regression, so per the agreed plan the loop continues rather than concluding at round 22/23.
