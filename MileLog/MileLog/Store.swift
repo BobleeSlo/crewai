@@ -141,13 +141,36 @@ final class Store: ObservableObject {
             addTrip(trip)
             return
         }
-        let previous = trips[idx]
-        trips[idx] = trip
+        // Merges only the fields TripEditor's UI actually lets the user
+        // change onto the CURRENT live trip — never blindly overwrites the
+        // whole struct with `trip` as passed in. `trip` can be a stale
+        // SwiftUI @State snapshot: TripDetailView/TripEditor seed
+        // `@State var trip` from their init argument, but a NavigationLink
+        // destination's @State is only initialized the FIRST time that
+        // screen is pushed — if the trip gets locked elsewhere (e.g.
+        // Settings' "Apply locks now") while that detail screen is still
+        // open on the nav stack, the open screen keeps showing/using the
+        // pre-lock snapshot. Blindly overwriting on Save let that stale
+        // screen silently re-unlock a trip (and could silently revert its
+        // distance too), with recordAuditDiff unable to even see isLocked
+        // change since it only diffs purpose/customerName/notes/type
+        // (round-11 adversarial review finding).
+        var merged = trips[idx]
+        let previous = merged
+        merged.purpose = trip.purpose
+        merged.customerName = trip.customerName
+        merged.notes = trip.notes
+        merged.type = trip.type
+        merged.reviewedAt = trip.reviewedAt
+        if !previous.isLocked {
+            merged.distanceKm = trip.distanceKm
+        }
+        trips[idx] = merged
         save()
-        push(trip)
+        push(merged)
 
         // Every edit to a locked trip is recorded for the compliance audit log.
-        if previous.isLocked { recordAuditDiff(from: previous, to: trip) }
+        if previous.isLocked { recordAuditDiff(from: previous, to: merged) }
     }
 
     private func recordAuditDiff(from old: Trip, to new: Trip) {
@@ -181,27 +204,44 @@ final class Store: ObservableObject {
     /// response-lost push can create a duplicate row; accepted, since a
     /// duplicate audit entry is harmless for a tamper-evident trail but a
     /// silently missing one defeats its purpose.
+    /// Guards against two overlapping flushes (one from `recordAuditDiff`'s
+    /// own Task, one from `initialSync`) racing on the shared, UserDefaults-
+    /// backed queue: `@MainActor` only serializes *synchronous* access, not
+    /// across the `await` inside the loop below, so without this a second
+    /// flush's read-modify-write of the whole array could silently clobber
+    /// an entry a concurrent `recordAuditDiff` call appended in between
+    /// (round-11 adversarial review finding).
+    private var isFlushingAuditEntries = false
+
     func flushPendingAuditEntries() async {
-        guard let supabase else { return }
-        let queued = pendingAuditEntries
-        guard !queued.isEmpty else { return }
-        var remaining: [PendingAuditEntry] = []
-        for entry in queued {
+        guard let supabase, !isFlushingAuditEntries else { return }
+        isFlushingAuditEntries = true
+        defer { isFlushingAuditEntries = false }
+        // Removes each entry individually, right after ITS OWN push
+        // succeeds, by re-reading the live queue at that moment rather than
+        // computing a "remaining" list against a snapshot taken before any
+        // awaits — the same class of lost-update bug the in-flight guard
+        // above prevents between two calls, but reachable even within a
+        // SINGLE call: a `recordAuditDiff` on the main actor can still run
+        // between this loop's awaits and append a brand-new entry, which a
+        // snapshot-based overwrite would have silently erased.
+        for entry in pendingAuditEntries {
             do {
                 try await supabase.pushAuditEntry(tripID: entry.tripID, field: entry.field,
                                                    oldValue: entry.oldValue, newValue: entry.newValue)
+                pendingAuditEntries.removeAll { $0 == entry }
             } catch {
-                remaining.append(entry)
+                // Leave it queued; the next flush (next edit or next sync) retries it.
             }
         }
-        pendingAuditEntries = remaining
-        if !remaining.isEmpty {
-            detectionLog?.log("\(remaining.count) compliance audit-log entr\(remaining.count == 1 ? "y" : "ies") couldn't sync yet — will retry.",
+        let stillQueued = pendingAuditEntries.count
+        if stillQueued > 0 {
+            detectionLog?.log("\(stillQueued) compliance audit-log entr\(stillQueued == 1 ? "y" : "ies") couldn't sync yet — will retry.",
                                level: .warning)
         }
     }
 
-    private struct PendingAuditEntry: Codable {
+    private struct PendingAuditEntry: Codable, Equatable {
         let tripID: UUID
         let field: String
         let oldValue: String

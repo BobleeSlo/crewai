@@ -95,6 +95,16 @@ struct RootView: View {
             // to MileLog requires Face ID again. Only .background triggers it —
             // .inactive happens during the Face ID sheet itself.
             if phase == .background { appLock.lock() }
+            // applyAutomaticLocks() previously only ran at Store.init() (cold
+            // launch) or the manual "Apply locks now" button — a trip could
+            // sit editable well past its configured lockAfterDays threshold
+            // for as long as the process stays alive across background
+            // sessions without a full relaunch, which this app's own
+            // location-tracking design makes routine. Also re-running it on
+            // every foreground narrows the window for the stale-@State-
+            // detail-screen scenario `updateTrip` now defends against
+            // (round-11 adversarial review finding).
+            if phase == .active { store.applyAutomaticLocks() }
         }
     }
 }
