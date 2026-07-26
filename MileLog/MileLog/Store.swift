@@ -28,24 +28,38 @@ final class Store: ObservableObject {
     @Published private(set) var tripsSyncFailed = false
     @Published private(set) var vehiclesSyncFailed = false
 
-    /// True only when a settings file was actually decoded from disk — i.e.
-    /// this device has real, user-owned settings rather than the untouched
-    /// defaults of a fresh install.
+    /// The account whose settings this device has already reconciled with
+    /// the cloud. Until it matches the signed-in user, this device holds no
+    /// authority over that account's `user_settings` row and must never
+    /// push to it — it can only adopt.
     ///
-    /// Without this, `initialSync` pushed local settings BEFORE pulling, so
-    /// signing into an existing account on a NEW device upserted all
-    /// eighteen default columns straight over that account's real
-    /// `user_settings` row — wiping reimbursement rates, home/work
-    /// coordinates, the whole Potni Nalog company header, and
-    /// `autoDetectEnabled` — then pulled back exactly what it had just
-    /// written and saved it locally. Trips and vehicles restored correctly
-    /// around it (their push loops are no-ops on an empty local store),
-    /// making the restore look successful while every future report
-    /// silently printed wrong € amounts. Unrecoverable, because the cloud
-    /// row was destroyed (round-7 UX review finding). Round 3 removed the
-    /// vehicle auto-seed for exactly this reason; settings is the single
-    /// always-present object that had no equivalent protection.
-    private var hasLocalSettings = false
+    /// **Why this is persisted per-account rather than inferred from disk.**
+    /// `initialSync` pushes local settings before pulling, so signing into
+    /// an existing account on a NEW device upserted all eighteen default
+    /// columns over that account's real row, then pulled back what it had
+    /// just written — wiping reimbursement rates (wrong € on every future
+    /// report), home/work coordinates (commute classification stops), the
+    /// Potni Nalog company header, and `autoDetectEnabled`, while trips and
+    /// vehicles restored correctly around it so the restore looked
+    /// successful. Unrecoverable, since the cloud row was destroyed
+    /// (round-7 UX review finding).
+    ///
+    /// Round 7 tried to fix that with a `hasLocalSettings` flag derived
+    /// from "does `settings.json` exist" — which round 8 showed doesn't
+    /// work, because `save()` writes all three files on every trip and
+    /// vehicle mutation. Any `addTrip`/`applyAutomaticLocks`/`retrySync`
+    /// during or before the sync flipped the flag over untouched defaults,
+    /// and the app's own "Try again" button then pushed them to the cloud.
+    /// File existence simply cannot express "the user authored these."
+    /// A persisted, per-account marker can, and survives both process death
+    /// and arbitrary `save()` interleaving.
+    private var settingsReconciledUserID: UUID? {
+        get {
+            guard let s = UserDefaults.standard.string(forKey: "MileLog.settingsReconciledUserID") else { return nil }
+            return UUID(uuidString: s)
+        }
+        set { UserDefaults.standard.set(newValue?.uuidString, forKey: "MileLog.settingsReconciledUserID") }
+    }
 
     /// Backs pull-to-refresh and the "Try again" buttons. Deliberately does
     /// only the DOWNLOAD half, not a full bidirectional resync: routing
@@ -85,7 +99,7 @@ final class Store: ObservableObject {
     /// Convenience accessor kept for the existing UI/CSV code.
     var reimbursementRate: Double {
         get { settings.reimbursementRate }
-        set { settings.reimbursementRate = newValue; save() }
+        set { settings.reimbursementRate = newValue; saveSettings() }
     }
 
     /// Set after the user signs in; when present, mutations are mirrored to Supabase.
@@ -707,8 +721,10 @@ final class Store: ObservableObject {
             // These are now the INCOMING account's defaults, not settings
             // this device owns — so don't let the next sync (or `save()`'s
             // own push) assert them over that account's real cloud row.
-            hasLocalSettings = false
-            save(pushingSettings: false)
+            // This device has not reconciled settings with the INCOMING
+            // account, so it holds no authority over that account's row.
+            settingsReconciledUserID = nil
+            save()
         }
         lastSyncedUserID = userID
         guard myGeneration == syncGeneration else { return }
@@ -729,11 +745,13 @@ final class Store: ObservableObject {
 
         for vehicle in vehicles { try? await supabase.pushVehicle(vehicle) }
         for trip in trips       { try? await supabase.pushTrip(trip) }
-        // Only assert local settings over the cloud when this device
-        // actually HAS settings of its own (see `hasLocalSettings`). On a
-        // fresh install we hold nothing but defaults and have no business
-        // overwriting the account's real row with them.
-        let settingsPushed = hasLocalSettings
+        // Only assert local settings over the cloud once this device has
+        // reconciled settings with THIS account (see
+        // `settingsReconciledUserID`). Before that we may be holding
+        // nothing but a fresh install's defaults, which must never
+        // overwrite the account's real row.
+        let settingsReconciled = settingsReconciledUserID == userID
+        let settingsPushed = settingsReconciled
             ? (try? await supabase.pushSettings(settings)) != nil
             : false
         guard myGeneration == syncGeneration else { return }
@@ -781,18 +799,33 @@ final class Store: ObservableObject {
         // happened to fail).
         if settingsPushed, let cloudSettings = try? await supabase.pullSettings() {
             settings = cloudSettings
-            hasLocalSettings = true
-        } else if !hasLocalSettings {
-            // This device has no settings of its own, so the cloud copy is
-            // authoritative — adopt it rather than keeping (and later
-            // pushing) defaults. If the account genuinely has no row yet,
-            // push our defaults once to establish one.
-            if let cloudSettings = try? await supabase.pullSettings() {
-                settings = cloudSettings
-            } else {
-                try? await supabase.pushSettings(settings)
+        } else if !settingsReconciled {
+            // This device hasn't reconciled settings with this account yet,
+            // so the cloud copy is authoritative — adopt it rather than
+            // keeping (and later pushing) whatever we happen to hold.
+            //
+            // `pullSettings()` returns an Optional AND throws, and `try?`
+            // flattens both into nil — so "the account has no row" and "the
+            // request failed" became indistinguishable, and the fallback
+            // pushed defaults over a row it had simply failed to read
+            // (round-8 UX review finding: one dropped request destroyed the
+            // account's settings). Only the genuinely-absent case may push.
+            do {
+                if let cloudSettings = try await supabase.pullSettings() {
+                    settings = cloudSettings
+                } else {
+                    // Confirmed absent, not merely unreachable: safe to
+                    // establish the account's first row from our defaults.
+                    try await supabase.pushSettings(settings)
+                }
+                // Only mark reconciled when we actually know what the cloud
+                // holds. On failure we stay unreconciled and simply try
+                // again on the next sync, still without pushing.
+                settingsReconciledUserID = userID
+            } catch {
+                detectionLog?.log("Couldn't reconcile settings with the cloud this sync — keeping local values and retrying next time.",
+                                   level: .warning)
             }
-            hasLocalSettings = true
         }
         save()
         // Re-arm auto-detect if this account's settings say it should be
@@ -924,23 +957,31 @@ final class Store: ObservableObject {
     /// data with that empty state. `.atomic` writes to a temp file and
     /// renames, so a kill mid-write leaves the OLD file intact instead of a
     /// corrupt new one (adversarial review finding).
-    /// `pushingSettings: false` is for the one caller that has just RESET
-    /// settings to defaults (the account-switch branch of `initialSync`) —
-    /// pushing there would upsert those defaults over the incoming
-    /// account's real cloud row before the pull that's about to fetch it
-    /// (round-7 UX review finding).
-    func save(pushingSettings: Bool = true) {
+    /// Persists all three files. Deliberately does NOT push settings to the
+    /// cloud: the overwhelming majority of callers here are trip/vehicle
+    /// mutations that never touched settings, and having them fire an
+    /// eighteen-column settings upsert as a side effect is what let a new
+    /// device's untouched defaults reach — and destroy — an existing
+    /// account's real row (round-8 UX review finding). Settings changes go
+    /// through `saveSettings()` instead, which is explicit about it.
+    func save() {
         let encoder = JSONEncoder()
         encoder.outputFormatting = .prettyPrinted
         try? encoder.encode(vehicles).write(to: vehiclesURL, options: .atomic)
         try? encoder.encode(trips).write(to: tripsURL, options: .atomic)
         try? encoder.encode(settings).write(to: settingsURL, options: .atomic)
-        if pushingSettings {
-            // A settings file now exists on disk, so this device owns real
-            // settings from here on and may assert them on future syncs.
-            hasLocalSettings = true
-            pushSettings()
-        }
+    }
+
+    /// Call after any deliberate change to `settings`. Persists, then pushes
+    /// — but only once this device has actually reconciled settings with
+    /// the signed-in account, so an edit made mid-sync (the auto-detect
+    /// toggle is the first control on the first screen after sign-in) can't
+    /// assert local defaults over a cloud row this device hasn't read yet.
+    func saveSettings() {
+        save()
+        guard let supabase, settingsReconciledUserID != nil else { return }
+        let snapshot = settings
+        Task { try? await supabase.pushSettings(snapshot) }
     }
 
     private func pushSettings() {
@@ -959,7 +1000,6 @@ final class Store: ObservableObject {
         }
         if let decoded = loadOrPreserveCorrupted(UserSettings.self, url: settingsURL, decoder: decoder) {
             settings = decoded
-            hasLocalSettings = true
         }
     }
 

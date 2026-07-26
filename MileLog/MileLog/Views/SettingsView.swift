@@ -402,26 +402,26 @@ struct SettingsView: View {
             }
             .onChange(of: store.trips.count) { refreshExport() }
             .onChange(of: store.settings.reimbursementRate) {
-                store.save()
+                store.saveSettings()
                 refreshExport()
             }
             .onChange(of: store.settings.commuteRate) {
-                store.save()
+                store.saveSettings()
                 refreshExport()
             }
             // Auto-detect enable/disable is handled by detector.setAutoDetect
             // via the Toggle binding (shared with the Record-screen toggle),
             // so no onChange handler is needed here.
-            .onChange(of: store.settings.stationaryTimeoutMinutes) { store.save() }
-            .onChange(of: store.settings.lockAfterDays) { store.save() }
-            .onChange(of: store.settings.companyName) { store.save() }
-            .onChange(of: store.settings.companyAddress) { store.save() }
-            .onChange(of: store.settings.companyLocation) { store.save() }
-            .onChange(of: store.settings.driverName) { store.save() }
-            .onChange(of: store.settings.tripBeneficiary) { store.save() }
-            .onChange(of: store.settings.tripArea) { store.save() }
+            .onChange(of: store.settings.stationaryTimeoutMinutes) { store.saveSettings() }
+            .onChange(of: store.settings.lockAfterDays) { store.saveSettings() }
+            .onChange(of: store.settings.companyName) { store.saveSettings() }
+            .onChange(of: store.settings.companyAddress) { store.saveSettings() }
+            .onChange(of: store.settings.companyLocation) { store.saveSettings() }
+            .onChange(of: store.settings.driverName) { store.saveSettings() }
+            .onChange(of: store.settings.tripBeneficiary) { store.saveSettings() }
+            .onChange(of: store.settings.tripArea) { store.saveSettings() }
             .onChange(of: store.settings.energyMode) { _, newMode in
-                store.save()
+                store.saveSettings()
                 location.apply(energyMode: newMode)
                 // TripDetector picks up the new mode automatically on next trip start.
             }
@@ -699,7 +699,7 @@ struct SettingsView: View {
             }
         }
 
-        store.save()
+        store.saveSettings()
         geocodeStatus = status.joined(separator: " · ")
     }
 }

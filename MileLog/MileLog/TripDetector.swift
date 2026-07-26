@@ -313,7 +313,7 @@ final class TripDetector: NSObject, ObservableObject {
     /// location when turning on, tear down when turning off).
     func setAutoDetect(_ enabled: Bool) {
         store.settings.autoDetectEnabled = enabled
-        store.save()
+        store.saveSettings()
         Task {
             if enabled {
                 if let notifications { _ = await notifications.requestPermission() }
