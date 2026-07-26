@@ -46,6 +46,15 @@ final class SupabaseService: ObservableObject {
 
     // MARK: - Auth
 
+    /// Stops blocking the UI on a session restore that's taking too long.
+    /// The restore itself keeps running — if it eventually succeeds,
+    /// `refreshAuth`'s normal completion signs the user in — but the user
+    /// gets an interactive sign-in screen in the meantime instead of an
+    /// indefinite spinner (round-8 UX review finding).
+    func abandonSessionRestore() {
+        didResolveInitialAuth = true
+    }
+
     func refreshAuth() async {
         defer { didResolveInitialAuth = true }
         do {

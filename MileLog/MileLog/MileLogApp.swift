@@ -73,6 +73,7 @@ struct RootView: View {
     /// the recovery session it rides on is short-lived.
     @State private var showingSetNewPassword = false
     @State private var recoveryLinkFailed = false
+    @State private var launchIsSlow = false
 
     var body: some View {
         Group {
@@ -160,9 +161,45 @@ struct RootView: View {
             Image(systemName: "car.fill")
                 .font(.system(size: 44, weight: .light))
                 .foregroundStyle(Theme.brandGradient)
+                .accessibilityHidden(true)
             ProgressView()
+            // Round 7 shipped this as a bare icon and spinner with no text,
+            // no timeout, and no way out — and it blocks the whole app. For
+            // a returning user with an expired token, the session refresh is
+            // a network call, so a bad connection parked them on a
+            // contentless spinner for the full URLSession timeout with the
+            // sign-in screen no longer reachable behind it. Round 4 already
+            // solved this exact shape one level down in the trips list;
+            // this state, which blocks strictly more, had none of it
+            // (round-8 UX review finding).
+            Text("Restoring your session…")
+                .font(.subheadline)
+                .foregroundColor(.secondary)
+
+            if launchIsSlow {
+                VStack(spacing: 10) {
+                    Text("This is taking longer than usual — your connection may be slow.")
+                        .font(.footnote)
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 32)
+                    Button("Sign in instead") {
+                        // Gives up waiting and shows the interactive screen.
+                        // Nothing is lost: a session that resolves later
+                        // simply signs the user straight in.
+                        supabase.abandonSessionRestore()
+                    }
+                    .font(.subheadline.weight(.semibold))
+                }
+                .transition(.opacity)
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(.systemBackground))
+        .animation(.easeInOut(duration: 0.2), value: launchIsSlow)
+        .task {
+            try? await Task.sleep(for: .seconds(10))
+            if !Task.isCancelled { launchIsSlow = true }
+        }
     }
 }

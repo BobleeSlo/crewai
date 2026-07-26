@@ -168,6 +168,19 @@ final class Store: ObservableObject {
     /// feedback (round-3 UX review finding).
     @discardableResult
     func applyAutomaticLocks() -> Int {
+        // Never sweep against settings we know aren't this account's yet.
+        // `lockAfterDays` defaults to 7, and this runs on every foreground —
+        // so on a new device, a foreground landing between "trips
+        // downloaded" and "settings adopted" would lock the account's whole
+        // freshly-restored history against 7 days instead of the user's real
+        // threshold. Locking is a one-way ratchet (enforced by the Postgres
+        // trigger and `updateTrip`'s own gate), so that permanently freezes
+        // distance/date/vehicle/type on trips the user was entitled to keep
+        // editing (round-8 UX review finding). Signed-out/offline-only use is
+        // unaffected: with no `supabase` there is no cloud copy to be waiting
+        // for, and the local settings genuinely are the user's own.
+        if supabase != nil && settingsReconciledUserID == nil { return 0 }
+
         let cutoff = Date().addingTimeInterval(-Double(settings.lockAfterDays) * 86_400)
         var lockedCount = 0
         for i in trips.indices where !trips[i].isLocked && trips[i].startedAt < cutoff {
@@ -836,6 +849,10 @@ final class Store: ObservableObject {
         // (round-6 UX review finding). Placed after the settings pull so
         // it reflects the account that actually just signed in.
         detector?.resumeIfEnabled()
+        // Now that this account's real `lockAfterDays` is known, run the
+        // sweep that `applyAutomaticLocks()` deliberately skipped while
+        // settings were still unreconciled (see its own guard).
+        applyAutomaticLocks()
     }
 
     private func push(_ trip: Trip) {
