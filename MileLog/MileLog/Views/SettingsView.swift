@@ -260,7 +260,7 @@ struct SettingsView: View {
                     Section {
                         TextField("Company name", text: $store.settings.companyName)
                         TextField("Company address", text: $store.settings.companyAddress)
-                        TextField("Company location (mesto)", text: $store.settings.companyLocation)
+                        TextField("Company city", text: $store.settings.companyLocation)
                         TextField("Driver name", text: $store.settings.driverName)
                         // Every sibling field above has an English gloss;
                         // these two didn't, breaking the pattern the rest
@@ -380,7 +380,7 @@ struct SettingsView: View {
 
                 Section {
                     LabeledContent("App", value: "MileLog")
-                    LabeledContent("Sync", value: "Supabase cloud")
+                    LabeledContent("Sync", value: "Private cloud backup")
                 } header: {
                     SectionHeaderLabel(title: "About", systemImage: "info.circle")
                 }

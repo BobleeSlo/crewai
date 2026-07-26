@@ -83,6 +83,26 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
         endLocation = nil
         startedAt = Date()
         isTracking = true
+        // Without this, the manual recorder silently stopped accumulating
+        // distance the moment the phone auto-locked or the user switched
+        // apps — i.e. during most of any real drive. TripDetector's
+        // automatic path sets this at all four of its own start sites
+        // precisely because (per docs/TRACKING-AUDIT-2026-07-22.md) iOS
+        // only grants sustained background runtime to apps using
+        // `allowsBackgroundLocationUpdates` with active location updates.
+        // The manual Start/Stop path never got the same treatment, so a
+        // manually-recorded trip would come out silently truncated — or,
+        // if the process was killed while suspended, lost entirely — with
+        // no warning anywhere on a screen whose live hero badge is
+        // explicitly designed to be glanced at while driving (round-4 UX
+        // review finding). Requires the "location" background mode, which
+        // this target already declares for the auto-detect path.
+        manager.allowsBackgroundLocationUpdates = true
+        // Re-apply the current preset here rather than only at init: the
+        // user may have changed energy mode between recordings, and
+        // pausesLocationUpdatesAutomatically in particular decides whether
+        // iOS may silently stop updates mid-trip.
+        energyMode.apply(to: manager)
         manager.startUpdatingLocation()
         return true
     }
@@ -90,6 +110,9 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
     func stop() {
         isTracking = false
         manager.stopUpdatingLocation()
+        // Hand back the background-location privilege (and its status-bar
+        // indicator) as soon as the recording is actually over.
+        manager.allowsBackgroundLocationUpdates = false
         endLocation = lastLocation
     }
 
@@ -108,6 +131,7 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
                            level: .warning)
         isTracking = false
         manager.stopUpdatingLocation()
+        manager.allowsBackgroundLocationUpdates = false
         distanceKm = 0
         lastLocation = nil
         startLocation = nil

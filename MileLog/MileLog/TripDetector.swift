@@ -576,6 +576,13 @@ final class TripDetector: NSObject, ObservableObject {
             let vehicle = confirmedVehicle ?? fallbackVehicle()
             guard let vehicle else {
                 log.log("Verification passed but no vehicle is registered at all — trip dropped.", level: .error)
+                // Tell the user too: a verified real drive being discarded
+                // is exactly the kind of silent loss that undermines trust
+                // in a mileage log, and the Detection Log alone reaches
+                // nobody (round-4 UX review finding).
+                if let notifications {
+                    Task { await notifications.sendNoVehicleTripDroppedNotification() }
+                }
                 return
             }
             // Log whenever the vehicle is an unconfirmed GUESS, not just a

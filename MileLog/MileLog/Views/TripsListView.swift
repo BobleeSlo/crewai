@@ -10,6 +10,9 @@ struct TripsListView: View {
     /// harder to recreate than a vehicle entry, yet had LESS protection
     /// (round-2 UX review finding).
     @State private var deleteCandidate: Trip?
+    /// Set once the syncing state has been on screen long enough that a
+    /// bare spinner stops being reassuring — see `syncingState`.
+    @State private var syncIsSlow = false
 
     var body: some View {
         NavigationStack {
@@ -148,9 +151,27 @@ struct TripsListView: View {
             Text("Syncing your trips…")
                 .font(.subheadline)
                 .foregroundColor(.secondary)
+            // A slow-but-alive connection (very plausible for exactly the
+            // user this state exists for — setting up a new phone, often
+            // travelling) could otherwise leave a bare spinner running for
+            // a long, indeterminate time with nothing acknowledging it
+            // (round-4 UX review finding). This doesn't cancel anything;
+            // the sync keeps retrying in the background.
+            if syncIsSlow {
+                Text("This is taking longer than usual — your connection may be slow. Your trips are safe and will appear once it finishes.")
+                    .font(.footnote)
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 32)
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(backgroundWash)
+        .task {
+            syncIsSlow = false
+            try? await Task.sleep(for: .seconds(12))
+            if !Task.isCancelled { syncIsSlow = true }
+        }
     }
 }
 

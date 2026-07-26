@@ -9,6 +9,7 @@ struct RecordTripView: View {
 
     @State private var selectedVehicleID: UUID?
     @State private var tripToClassify: Trip?
+    @State private var showingAddVehicle = false
 
     /// True when the auto-detector has a trip in flight — manual button is
     /// disabled in that case so the user can't double-record.
@@ -52,6 +53,18 @@ struct RecordTripView: View {
 
                     if autoActive {
                         autoActiveHint
+                    } else if store.activeVehicles.isEmpty {
+                        // Record — not Vehicles — is the very first screen
+                        // shown after sign-in, and with zero vehicles the
+                        // vehicle menu is empty and Start is disabled with
+                        // nothing but a 0.45 dim to explain why. Auto-detect
+                        // is worse: TripDetector.finishVerification drops a
+                        // fully verified real drive outright when no vehicle
+                        // is registered, logging only to a Settings screen a
+                        // first-time user will never open. Neither path
+                        // steered the user to add a vehicle first (round-4
+                        // UX review finding).
+                        noVehicleHint
                     } else if !location.authorized {
                         // No longer gated on `!location.isTracking` — a
                         // manual recording can no longer even start while
@@ -79,6 +92,17 @@ struct RecordTripView: View {
                     selectedVehicleID = store.activeVehicles.first?.id
                 }
             }
+            // `onAppear` doesn't re-fire when a vehicle is added from the
+            // sheet above (this view stays mounted), so without this the
+            // user would add their first vehicle and find Start STILL
+            // disabled with no explanation. Also covers the first vehicle
+            // arriving from a cloud sync, and the selected vehicle being
+            // archived/deleted from another tab.
+            .onChange(of: store.activeVehicles) { _, vehicles in
+                if selectedVehicleID == nil || !vehicles.contains(where: { $0.id == selectedVehicleID }) {
+                    selectedVehicleID = vehicles.first?.id
+                }
+            }
             .sheet(item: $tripToClassify) { trip in
                 ClassifyTripView(trip: trip)
                     // Nothing about this trip is persisted anywhere until
@@ -90,7 +114,40 @@ struct RecordTripView: View {
                     // (round-9 adversarial review finding).
                     .interactiveDismissDisabled()
             }
+            .sheet(isPresented: $showingAddVehicle) {
+                VehicleEditView(
+                    vehicle: Vehicle(name: "", licensePlate: "", type: .own),
+                    isNew: true
+                )
+            }
         }
+    }
+
+    /// Shown when the account has no vehicles yet — the one state where
+    /// nothing on this screen can work, and where the app previously gave
+    /// a brand-new user no explanation or next step at all.
+    private var noVehicleHint: some View {
+        VStack(spacing: 12) {
+            HStack(spacing: 10) {
+                Image(systemName: "car.2.fill")
+                    .foregroundStyle(Theme.brandGradient)
+                Text("Add a vehicle to start tracking trips — auto-detect needs one too.")
+                    .font(.footnote)
+                    .foregroundColor(.secondary)
+                Spacer(minLength: 0)
+            }
+            Button {
+                showingAddVehicle = true
+            } label: {
+                Label("Add vehicle", systemImage: "plus")
+                    .font(.subheadline.weight(.semibold))
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+        }
+        .padding(12)
+        .background(Theme.accent.opacity(0.08))
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 
     // MARK: - Layers

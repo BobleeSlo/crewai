@@ -377,9 +377,15 @@ struct VehicleEditView: View {
                 }
 
                 Section {
-                    TextField("Vrsta in tip vozila", text: $vehicle.vehicleTypeDescription)
+                    // Glossed for the same reason SettingsView's own potni
+                    // nalog fields were: the surrounding chrome is English,
+                    // so a user who doesn't read Slovenian had no clue what
+                    // to type here (round-4 UX review finding — the same
+                    // gap round 2 fixed on the Settings screen, missed on
+                    // this one).
+                    TextField("Vrsta in tip vozila (vehicle make/type)", text: $vehicle.vehicleTypeDescription)
                         .disabled(hasLockedTrips)
-                    Stepper("Število sedežev: \(vehicle.seatCount)", value: $vehicle.seatCount, in: 1...9)
+                    Stepper("Število sedežev (seats): \(vehicle.seatCount)", value: $vehicle.seatCount, in: 1...9)
                         .disabled(hasLockedTrips)
                 } header: {
                     Text("Potni nalog")

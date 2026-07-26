@@ -99,6 +99,26 @@ final class NotificationManager: NSObject, ObservableObject, UNUserNotificationC
         try? await center.add(request)
     }
 
+    /// A fully GPS/motion-verified drive was detected but had to be thrown
+    /// away because the account has no vehicle to attribute it to. That
+    /// previously left its only trace in the Detection Log — a screen
+    /// buried under Settings that a first-time user has no reason to ever
+    /// open — so the user simply lost a real trip with no signal at all
+    /// (round-4 UX review finding).
+    func sendNoVehicleTripDroppedNotification() async {
+        let content = UNMutableNotificationContent()
+        content.title = String(localized: "Trip not saved")
+        content.body = String(localized: "A drive was detected, but there's no vehicle to log it against. Add your car in MileLog so the next one is saved.")
+        content.sound = .default
+
+        let request = UNNotificationRequest(
+            identifier: "no-vehicle-trip-dropped",
+            content: content,
+            trigger: nil   // deliver immediately
+        )
+        try? await center.add(request)
+    }
+
     // MARK: - Handling action taps
 
     nonisolated func userNotificationCenter(
