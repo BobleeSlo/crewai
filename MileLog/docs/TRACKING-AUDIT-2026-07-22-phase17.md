@@ -204,6 +204,34 @@ Tally: 2 High (−16), 1 Medium (−4), 1 Low (−1.5) = 100 − 21.5 = **78.5%*
 
 4. **`LocationManager.discardIfTracking()` discarded silently**, unlike `TripDetector.discardActiveTripForAccountSwitch()`'s explicit warning for the identical class of event — a manual recording lost to a sign-out left zero trace anywhere. **Fixed**: `LocationManager` gained the same `weak var detectionLog: DetectionLog?` reference and now logs a matching warning.
 
+## Round 9 review: Success Score 66/100
+
+A ninth reviewer covered the areas rounds 1-8 had spent the least time on: `PDFReporter.swift`'s pagination, the full migration/schema history, and every previously-unreviewed View (`RecordTripView`, `VehiclesView`, `AuthView`, `AppLock`/`LockView`, `NotificationManager`'s action handling, etc.). Re-verified the account-switch mechanism end to end with no regression found. Found one new Critical in a completely different subsystem — the manual-recording classify flow — plus a real compliance gap in the new potni nalog report screen.
+
+Tally: 1 Critical (−15), 1 High (−8), 2 Medium (−8), 2 Low (−3) = 100 − 34 = **66%**
+
+### Critical
+
+1. **A fully-measured manual trip could be silently destroyed by an ordinary swipe.** `RecordTripView.finalizeTrip()` holds a completed, GPS-measured trip only in local `@State private var tripToClassify: Trip?`, presented via `.sheet(item:)`; nothing is written to `Store` until the user taps Save inside `TripEditor`. The sheet had no `.interactiveDismissDisabled()`, so the same swipe-down gesture that dismisses any ordinary sheet — not just the sheet's own explicit "Discard" button — discarded the trip with zero confirmation. **Fixed**: added `.interactiveDismissDisabled()` to the `ClassifyTripView` sheet in `RecordTripView.swift`; the explicit "Discard" toolbar button remains as the only way to intentionally drop an unsaved trip.
+
+### High
+
+2. **The company-car potni nalog report defaulted to including private trips, with no visual way to tell them apart.** Unlike `ownCarCandidates` (business/commute only), `companyLogbookCandidates` filters purely by vehicle + month — any `.privateTrip` in that vehicle passes straight through, and `ReportSelectionView` pre-selects every candidate by default. `logbookRow` (unlike `ownCarRow`) rendered no type badge at all, so a user could not visually distinguish a private trip from a business one on the selection screen. The natural flow (pick vehicle/month, tap Generate) could produce an official Slovenian travel-order document — every page hardcodes "Vrsta prevoza: SLUŽBENA POT" — that misrepresents private mileage as business travel. **Fixed**: `ReportSelectionView` gained a `defaultSelected` parameter; the logbook screen now defaults to business/commute only (private trips stay listed and selectable, for the rarer case a user genuinely wants one included, but require a conscious tap) and `logbookRow` now shows the same type badge `ownCarRow` already does.
+
+### Medium
+
+3. **`reimbursement_amount_eur` went stale in the database after editing an unlocked trip.** `trip_before_insert()` only ran `BEFORE INSERT`; editing an unlocked trip's `distance_km` or `trip_type` after its first sync (both allowed — `trip_lock_guard` only blocks these once `is_locked`) left the stored reimbursement column computed from the original values. The app itself never notices (it always recomputes client-side from current `distanceKm`/`type`/settings), but the database's own stored figure silently drifts from what the app displays. **Fixed**: the trigger now also fires `BEFORE UPDATE` (`migration-010-reimbursement-recompute-on-update.sql`, and `schema.sql` updated directly), recomputing on every write and explicitly nulling the amount when a trip's type isn't `business`.
+4. **`matchVehicle`'s Bluetooth-UID match had no ambiguity check**, unlike its own sibling name-match fallback a few lines below (which explicitly refuses to guess and logs an error when a BT name matches more than one active vehicle). `VehiclesView`'s "capture this car's Bluetooth" flow just copies whatever `device.uid` is currently connected — if a user re-captures it for vehicle B while still connected to vehicle A, two vehicles end up sharing a UID, and `matchVehicle` would silently pick whichever is `.first` in `store.activeVehicles`, misattributing a trip's vehicle (and therefore its reimbursement rate and destination logbook) with no trace anywhere. **Fixed**: applied the identical ambiguity-refusal pattern already used for the name-match path to the UID-match path.
+
+### Low
+
+5. **`AppLock` never re-locked on sign-out**, only on `scenePhase == .background`. A user who unlocks once, then signs out and back in (as themself or someone else) without ever backgrounding the app, saw tab content immediately with no Face ID/Touch ID prompt — despite the Security section's own copy promising a prompt "each time you open it." Low impact (requires physical possession of an already-unlocked device either way), but a real gap in the lock's stated guarantee. **Fixed**: the Sign Out button now calls `appLock.lock()` immediately, rather than waiting on a background transition that may never come.
+6. **Single-page PDF reports (the common case for a typical month) had no page footer at all.** `drawPageFooter` was only ever called from the pagination-overflow branches — i.e. starting from page 2 — so the initial `ctx.beginPage()` in both `generateMonthlyOwnCar` and `generateCompanyCarLogbook` never got one. Cosmetic only. **Fixed**: both generators now draw the page-1 footer immediately after their initial `beginPage()`.
+
+### Confirmed still closed from prior rounds
+
+Re-verified the account-switch/sync mechanism (`Store.initialSync`'s `syncGeneration` guard and account-mismatch wipe, `SupabaseService.signOut()`'s discard-before-teardown ordering, `TripDetector.discardActiveTripForAccountSwitch()`, `LocationManager.discardIfTracking()`, per-account tombstone scoping) end to end — nothing regressed. Also re-checked round 8's own fixes for regressions (`TripEditor`'s `isNew` branch still correctly hides `ReceiptsSection`; `TripDetector.endTrip`'s re-push-before-points-push ordering is intact) and found both still correct.
+
 ## What's next
 
-A fourth, independent review round is in progress to verify these fixes and re-score.
+Round 10 is queued next per the user's standing instruction to keep iterating until the score exceeds 95%.

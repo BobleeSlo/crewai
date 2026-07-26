@@ -114,6 +114,7 @@ enum PDFReporter {
             var rowIndex = 0
             var page = 1
             ctx.beginPage()
+            drawPageFooter(page: page, month: monthLabel)
             drawMonthlyHeader(
                 month: monthLabel,
                 tripCount: monthly.count,
@@ -221,6 +222,7 @@ enum PDFReporter {
         let data = renderer.pdfData { ctx in
             var page = 1
             ctx.beginPage()
+            drawPageFooter(page: page, month: monthLabel)
             drawPotniNalogHeader(settings: settings, vehicle: vehicle, firstOfMonth: firstOfMonth)
             var y = headerTopOffset(extra: 96)
             drawTableHeader(titles: potniNalogColumnTitles, widths: potniNalogColumnWidths, at: y)

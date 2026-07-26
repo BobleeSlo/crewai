@@ -20,6 +20,7 @@ struct ReportSelectionView: View {
     init(
         title: String,
         candidateTrips: [Trip],
+        defaultSelected: [Trip]? = nil,
         formatRow: @escaping (Trip) -> AnyView,
         generate: @escaping ([Trip]) -> PDFReporter.Result?
     ) {
@@ -27,7 +28,7 @@ struct ReportSelectionView: View {
         self.candidateTrips = candidateTrips
         self.formatRow = formatRow
         self.generate = generate
-        _selected = State(initialValue: Set(candidateTrips.map(\.id)))
+        _selected = State(initialValue: Set((defaultSelected ?? candidateTrips).map(\.id)))
     }
 
     private var selectedTrips: [Trip] {

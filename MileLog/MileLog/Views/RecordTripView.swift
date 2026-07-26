@@ -72,6 +72,14 @@ struct RecordTripView: View {
             }
             .sheet(item: $tripToClassify) { trip in
                 ClassifyTripView(trip: trip)
+                    // Nothing about this trip is persisted anywhere until
+                    // the user taps Save — it lives only in `tripToClassify`
+                    // (see `finalizeTrip()`). An ordinary swipe-down gesture
+                    // would otherwise discard a fully GPS-measured trip with
+                    // no confirmation. The sheet's own "Discard" button
+                    // remains available for an explicit, intentional discard
+                    // (round-9 adversarial review finding).
+                    .interactiveDismissDisabled()
             }
         }
     }

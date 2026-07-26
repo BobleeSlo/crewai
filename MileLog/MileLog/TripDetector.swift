@@ -1000,8 +1000,22 @@ final class TripDetector: NSObject, ObservableObject {
         guard let device else { return nil }
         let pool = store.activeVehicles
 
-        if let v = pool.first(where: { !$0.bluetoothUID.isEmpty && $0.bluetoothUID == device.uid }) {
-            return v
+        // UID match is trusted unconditionally ONLY when it's unique. It
+        // normally is (a UID identifies one physical device) — but nothing
+        // stops a user from re-capturing "this car's Bluetooth" for vehicle
+        // B while still connected to vehicle A (VehiclesView's capture flow
+        // just copies whatever device.uid is currently connected), leaving
+        // two vehicles sharing a UID. Apply the same ambiguity refusal
+        // already used for the name-match fallback below, rather than
+        // silently picking .first (round-9 adversarial review finding).
+        let uidMatches = pool.filter { !$0.bluetoothUID.isEmpty && $0.bluetoothUID == device.uid }
+        if uidMatches.count == 1 {
+            return uidMatches[0]
+        }
+        if uidMatches.count > 1 {
+            log.log("AMBIGUOUS BT UID for '\(device.name)' matches \(uidMatches.count) active vehicles (\(uidMatches.map(\.name).joined(separator: ", "))) — refusing to guess. Re-pair each vehicle from its own Bluetooth connection so their IDs are unique.",
+                    level: .error)
+            return nil
         }
 
         let nameMatches = pool.filter { !$0.bluetoothName.isEmpty && $0.bluetoothName == device.name }

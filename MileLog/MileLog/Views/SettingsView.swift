@@ -311,6 +311,14 @@ struct SettingsView: View {
                 Section {
                     LabeledContent("Signed in as", value: supabase.userEmail ?? "—")
                     Button(role: .destructive) {
+                        // Re-lock immediately rather than waiting for the
+                        // next .background transition — otherwise signing
+                        // out and back in (or as a different account)
+                        // without ever backgrounding the app skips the
+                        // Face ID/Touch ID prompt this section promises
+                        // "each time you open it" (round-9 adversarial
+                        // review finding).
+                        appLock.lock()
                         Task { await supabase.signOut() }
                     } label: {
                         Label("Sign out", systemImage: "rectangle.portrait.and.arrow.right")
@@ -484,6 +492,17 @@ struct SettingsView: View {
             ReportSelectionView(
                 title: "\(vehicle.name) · \(monthLabel(month)) \(String(year))",
                 candidateTrips: candidates,
+                // The potni nalog is an official business-travel-order
+                // document (every generated page hardcodes "Vrsta prevoza:
+                // SLUŽBENA POT"). Unlike the own-car report, this report's
+                // candidates intentionally include private trips too — so a
+                // full logbook can reconcile total company-car mileage — but
+                // they must never be silently pre-checked into an official
+                // business record. Default-select only business/commute;
+                // private trips stay visible (badged, see logbookRow) and
+                // selectable, requiring a conscious opt-in (round-9
+                // adversarial review finding).
+                defaultSelected: candidates.filter { $0.type != .privateTrip },
                 formatRow: { trip in AnyView(logbookRow(trip: trip)) },
                 generate: { chosen in
                     PDFReporter.generateCompanyCarLogbook(
@@ -543,6 +562,17 @@ struct SettingsView: View {
                 Text(trip.startedAt.formatted(date: .omitted, time: .shortened))
                     .font(.caption2.monospacedDigit())
                     .foregroundColor(.secondary)
+                // Unlike ownCarRow, this list previously showed no type
+                // indicator at all, so a private trip riding along in a
+                // company car's official travel-order document looked
+                // identical to a business one (round-9 adversarial review
+                // finding).
+                Text(trip.type.label)
+                    .font(.caption2.weight(.semibold))
+                    .padding(.horizontal, 6).padding(.vertical, 2)
+                    .background(typeBadgeColor(trip.type).opacity(0.2))
+                    .foregroundColor(typeBadgeColor(trip.type))
+                    .clipShape(Capsule())
             }
             .frame(width: 84, alignment: .leading)
 

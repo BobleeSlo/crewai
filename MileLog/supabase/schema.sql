@@ -120,13 +120,17 @@ begin
   if new.distance_km is not null and new.trip_type = 'business' then
     new.reimbursement_amount_eur =
       round(new.distance_km * coalesce(new.reimbursement_rate_eur, 0.430), 2);
+  else
+    new.reimbursement_amount_eur = null;
   end if;
   return new;
 end;
 $$ language plpgsql;
 
+-- Runs on UPDATE too (not just INSERT) so editing an unlocked trip's
+-- distance/type doesn't leave reimbursement_amount_eur stale.
 drop trigger if exists trips_bi on trips;
-create trigger trips_bi before insert on trips
+create trigger trips_bi before insert or update on trips
   for each row execute function trip_before_insert();
 
 -- Keep the vehicle's odometer in sync with the latest trip.
