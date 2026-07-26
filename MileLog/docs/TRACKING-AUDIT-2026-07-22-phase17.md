@@ -117,7 +117,32 @@ Tally: 2 Critical (−30), 1 High (−8), 3 Medium (−12), 1 Low (−1.5) = 100
 
 ### Fix detail: `initialSync` merge strategy
 
-Replaced the blind "push then replace local with cloud" with a merge: push local first as before, then only **add** cloud entries whose id isn't already present locally (never replace or remove an existing local trip/vehicle), and exclude the currently-active auto-detected trip's id from what gets pulled in at all. This trades away automatically adopting a same-id edit made on a different device — a real but low-probability cost for an app that's single-device in practice for this user — for eliminating the confirmed risk of silently destroying this device's own data on a sync cycle. Settings sync is unchanged (still a full replace) since there's no equivalent per-field loss risk there.
+Replaced the blind "push then replace local with cloud" with a merge: push local first as before, then only **add** cloud entries whose id isn't already present locally (never replace or remove an existing local trip/vehicle), and exclude the currently-active auto-detected trip's id from what gets pulled in at all. This trades away automatically adopting a same-id edit made on a different device — a real but low-probability cost for an app that's single-device in practice for this user — for eliminating the confirmed risk of silently destroying this device's own data on a sync cycle.
+
+## Round 5 review: Success Score 42/100
+
+A fifth reviewer examined the auth/session boundary, the delete-vs-merge-sync interaction, RLS policy completeness, and the manual-recording/receipts paths — none previously examined. All round 1-4 target fixes re-verified as holding. Found two Criticals directly caused by gaps in round 4's own sync work, plus further findings in adjacent areas.
+
+Tally: 2 Critical (−30), 3 High (−24), 1 Medium (−4) = 100 − 58 = **42%**
+
+### Critical
+
+1. **Sign-out then sign-in as a different account leaked data cross-account.** `Store` had no reset on identity change; `initialSync` re-fires on every `supabase.userEmail` change and unconditionally pushed whatever local `vehicles`/`trips`/`settings` were sitting on the device — tagged with the *newly* signed-in user's id — into that new account's own rows, then pulled their real data into the same local arrays alongside the leaked leftovers. Reproducible via Settings → sign out → sign in as someone else, no relaunch needed. **Fixed**: `Store` now persists `lastSyncedUserID`; `initialSync` compares it against the actual authenticated user's id at the start of every sync and wipes local `vehicles`/`trips`/`settings` (plus ends/discards any in-progress auto-detected trip via `detector?.disable()`) before proceeding, whenever the two don't match.
+2. **The merge-only-add sync strategy (round 4's fix) could resurrect trips/vehicles deliberately deleted while offline.** `deleteTrips`/`deleteVehicle`'s cloud-delete calls are best-effort (`try?`); if one silently failed, the cloud row survived, and since a deleted id is by definition no longer in the local array to exclude by id, the very next sync's "add anything cloud-only" step would silently re-add it — undoing the user's deletion and double-counting its distance/reimbursement. **Fixed**: added `deletedTripIDs`/`deletedVehicleIDs` tombstone sets (persisted in `UserDefaults`, kept indefinitely rather than pruned since there's no cheap way to confirm a delete is safe to forget through `try?`-swallowed errors). Both are excluded from the merge's cloud-only additions, and `initialSync` now retries each tombstoned delete on every sync.
+
+### High
+
+3. **`UserSettings` sync never got the merge-based anti-clobber protection given to trips/vehicles in round 4** — it still did a blind push-then-replace. If the push silently failed but the immediately-following pull succeeded, a just-edited reimbursement rate, address, or energy mode would be silently reverted to a stale cloud value. **Fixed**: the pull-and-adopt step now only runs when the preceding push actually succeeded — settings has no id to merge by like trips/vehicles do, so this is the safe equivalent: never adopt a cloud copy in the same cycle a local edit failed to reach it.
+4. **`trip_audit_log` had no INSERT policy at all** — only a SELECT policy existed (confirmed across `schema.sql` and every migration), so `Store.recordAuditDiff`'s insert was silently rejected by RLS for every single edit to a locked trip. The compliance audit trail the app's own UI explicitly promises ("recorded in the audit log") has never actually persisted anything. **Fixed**: added the missing `own_audit_insert` policy to `schema.sql` and a new migration (`migration-008-audit-log-insert-policy.sql`).
+5. **Manual Start/Stop recording (`LocationManager`) never got round 4's energy-mode-scaled GPS accuracy ceiling** — it still hardcoded `< 50`. In Low Power mode (~100m target, and Settings recommends it for long highway drives) this could reject nearly every fix during a manually-recorded trip, leaving its distance stuck near zero for the whole drive. **Fixed**: now reads `energyMode.maxAcceptableGPSAccuracy`, matching `TripDetector`'s auto-detect path exactly.
+
+### Medium
+
+6. **Receipts sync is half-implemented on both ends** — a receipt attached before a brand-new manual trip is first saved can upload its photo then fail the `receipts.trip_id` foreign-key insert (orphaning the blob), and locally "deleted" receipts only mutate the in-memory array, silently reappearing the next time the screen re-pulls from Supabase. **Not fixed this round** — a pre-existing feature this session's work never touched, with a real UI-timing fix and a missing `deleteReceipt` API call both needed; documented here as a known, deliberately deferred gap rather than silently dropped.
+
+## Status after five rounds
+
+The score has moved 35 → 52.5 → 73 → 48.5 → 42 — not a monotonic climb, because each round after the first examined a *different* subsystem the previous rounds hadn't touched (local trip-detection engine → cloud sync's field coverage → classification/GPS-accuracy edge cases → the sync layer's own correctness → the auth/session boundary and RLS policies) and each one found genuine, confirmed bugs in that newly-examined territory rather than the same code regressing. The core `TripDetector` engine itself has been independently re-verified sound by every round since round 1. Given the pattern of new scope surfacing each round, continuing to chase a 95% score by simply running more rounds may keep finding new areas rather than converging — this is a judgment call for the user on whether/how to continue.
 
 ## What's next
 

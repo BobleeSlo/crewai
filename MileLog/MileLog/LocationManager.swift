@@ -84,8 +84,17 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
         Task { @MainActor [weak self] in
             guard let self else { return }
             for loc in locations {
-                // Skip inaccurate fixes.
-                guard loc.horizontalAccuracy >= 0, loc.horizontalAccuracy < 50 else { continue }
+                // Skip inaccurate fixes. Scaled to the active energy mode
+                // rather than a bare 50m constant — Low Power mode targets
+                // ~100m accuracy (Settings even recommends it "for long
+                // highway drives"), so a fixed 50m ceiling could reject
+                // essentially every fix during a manually-recorded trip in
+                // that mode, leaving distanceKm stuck near zero for the
+                // whole drive. Same fix already applied to TripDetector's
+                // auto-detect path; this manual-recording path had been
+                // missed (round-5 adversarial review finding).
+                guard loc.horizontalAccuracy >= 0,
+                      loc.horizontalAccuracy < self.energyMode.maxAcceptableGPSAccuracy else { continue }
 
                 if self.startLocation == nil { self.startLocation = loc }
 

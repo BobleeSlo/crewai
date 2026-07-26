@@ -161,12 +161,40 @@ final class Store: ObservableObject {
     func deleteTrips(_ sectionTrips: [Trip], at offsets: IndexSet) {
         let ids = Set(offsets.map { sectionTrips[$0].id })
         trips.removeAll { ids.contains($0.id) }
+        deletedTripIDs.formUnion(ids)
         save()
         if let supabase {
             Task {
                 for id in ids { try? await supabase.deleteTrip(id: id) }
             }
         }
+    }
+
+    /// Ids the user has deliberately deleted, persisted so `initialSync`'s
+    /// merge-based pull (see its own doc comment) never re-adds one of them.
+    /// Without this, a delete whose `supabase.deleteTrip`/`deleteVehicle`
+    /// call silently failed (`try?`, offline/timeout — same connectivity
+    /// pattern this app's comments cite throughout) leaves the cloud row in
+    /// place; the very next sync's "add anything cloud-only" step would
+    /// then resurrect it, since a deleted id is by definition no longer in
+    /// the local array to be excluded by id (round-5 adversarial review
+    /// finding). Kept indefinitely rather than pruned once "confirmed
+    /// deleted" — there's no cheap way to confirm that with `try?`-swallowed
+    /// errors, and a UUID set costs nothing to keep growing.
+    private var deletedTripIDs: Set<UUID> {
+        get { Self.readUUIDSet(key: "MileLog.deletedTripIDs") }
+        set { Self.writeUUIDSet(newValue, key: "MileLog.deletedTripIDs") }
+    }
+    private var deletedVehicleIDs: Set<UUID> {
+        get { Self.readUUIDSet(key: "MileLog.deletedVehicleIDs") }
+        set { Self.writeUUIDSet(newValue, key: "MileLog.deletedVehicleIDs") }
+    }
+    private static func readUUIDSet(key: String) -> Set<UUID> {
+        let strings = UserDefaults.standard.stringArray(forKey: key) ?? []
+        return Set(strings.compactMap(UUID.init))
+    }
+    private static func writeUUIDSet(_ ids: Set<UUID>, key: String) {
+        UserDefaults.standard.set(ids.map(\.uuidString), forKey: key)
     }
 
     /// Trips grouped by calendar month, newest first, with a per-month business total.
@@ -244,6 +272,7 @@ final class Store: ObservableObject {
             return .soft
         } else {
             vehicles.removeAll { $0.id == vehicle.id }
+            deletedVehicleIDs.insert(vehicle.id)
             save()
             if let supabase {
                 Task { try? await supabase.deleteVehicle(id: vehicle.id) }
@@ -261,6 +290,24 @@ final class Store: ObservableObject {
     }
 
     // MARK: - Cloud sync
+
+    /// Persists which account's data is currently held locally, so a
+    /// sign-out followed by signing in as a genuinely DIFFERENT account can
+    /// be told apart from re-signing into the same one or a first-ever
+    /// sign-in. Without this, `initialSync` had no way to know the local
+    /// `vehicles`/`trips`/`settings` it's about to push belong to a
+    /// different, previous user — it would tag that stale data with the
+    /// NEWLY signed-in user's id and insert it straight into their account
+    /// (round-5 adversarial review finding — a confirmed cross-account data
+    /// leak, reproducible via Settings → sign out → sign in as someone
+    /// else, no relaunch needed).
+    private var lastSyncedUserID: UUID? {
+        get {
+            guard let s = UserDefaults.standard.string(forKey: "MileLog.lastSyncedUserID") else { return nil }
+            return UUID(uuidString: s)
+        }
+        set { UserDefaults.standard.set(newValue?.uuidString, forKey: "MileLog.lastSyncedUserID") }
+    }
 
     /// Called once after sign-in: push any local changes the cloud hasn't
     /// seen, then merge in anything the cloud has that's missing locally.
@@ -289,23 +336,60 @@ final class Store: ObservableObject {
     /// combined with a bare append, could double-count its distance
     /// (round-4 adversarial review finding; `addTrip`'s upsert-by-id above
     /// is the second half of closing this).
+    ///
+    /// Deleted-item tombstones (`deletedTripIDs`/`deletedVehicleIDs`) are
+    /// also excluded from the merge, and their deletes are retried here —
+    /// otherwise a delete whose cloud call silently failed would get
+    /// resurrected by this same merge on the very next sync (round-5
+    /// adversarial review finding).
     func initialSync(via supabase: SupabaseService) async {
         self.supabase = supabase
 
+        guard let userID = try? await supabase.currentUserId() else { return }
+        if let previous = lastSyncedUserID, previous != userID {
+            // A different account than whatever was last synced on this
+            // device — the local state belongs to that previous account,
+            // not this one. Wipe it (and any in-progress auto-detected
+            // trip, which could equally be the wrong account's) before any
+            // push/pull runs, rather than leaking it into the new account.
+            vehicles = []
+            trips = []
+            settings = UserSettings()
+            detector?.disable()
+            save()
+        }
+        lastSyncedUserID = userID
+
+        for id in deletedTripIDs    { try? await supabase.deleteTrip(id: id) }
+        for id in deletedVehicleIDs { try? await supabase.deleteVehicle(id: id) }
+
         for vehicle in vehicles { try? await supabase.pushVehicle(vehicle) }
         for trip in trips       { try? await supabase.pushTrip(trip) }
-        try? await supabase.pushSettings(settings)
+        let settingsPushed = (try? await supabase.pushSettings(settings)) != nil
 
         if let cloudVehicles = try? await supabase.pullVehicles() {
             let localIDs = Set(vehicles.map(\.id))
-            vehicles += cloudVehicles.filter { !localIDs.contains($0.id) }
+            vehicles += cloudVehicles.filter { !localIDs.contains($0.id) && !deletedVehicleIDs.contains($0.id) }
         }
         if let cloudTrips = try? await supabase.pullTrips() {
             let localIDs = Set(trips.map(\.id))
             let activeID = detector?.activeTrip?.id
-            trips += cloudTrips.filter { !localIDs.contains($0.id) && $0.id != activeID }
+            trips += cloudTrips.filter {
+                !localIDs.contains($0.id) && $0.id != activeID && !deletedTripIDs.contains($0.id)
+            }
         }
-        if let cloudSettings = try? await supabase.pullSettings() {
+        // Unlike trips/vehicles, settings is a single object with no id to
+        // merge by — so the only safe way to avoid clobbering a local edit
+        // that failed to push is to skip adopting the cloud copy entirely
+        // when the push didn't succeed. If push succeeded, the cloud
+        // already reflects (at least) our own local settings, so pulling
+        // it back is safe (round-5 adversarial review finding: pushing then
+        // unconditionally pulling-and-replacing settings, unlike the
+        // deliberately-merged trips/vehicles above, could silently revert a
+        // local edit — e.g. a just-changed reimbursement rate or home
+        // address — back to a stale cloud value whenever the push alone
+        // happened to fail).
+        if settingsPushed, let cloudSettings = try? await supabase.pullSettings() {
             settings = cloudSettings
         }
         save()

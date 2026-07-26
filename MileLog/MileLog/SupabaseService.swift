@@ -171,7 +171,12 @@ final class SupabaseService: ObservableObject {
 
     // MARK: - Helpers
 
-    private func currentUserId() async throws -> UUID {
+    /// Not private: `Store.initialSync` needs this to detect a sign-out
+    /// followed by signing in as a genuinely different account, so it can
+    /// wipe stale local data before that data gets pushed (tagged with the
+    /// NEW user's id) into the new account's own rows (round-5 adversarial
+    /// review finding — a confirmed cross-account data leak).
+    func currentUserId() async throws -> UUID {
         let session = try await client.auth.session
         return session.user.id
     }

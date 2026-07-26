@@ -198,3 +198,11 @@ create policy own_points on trip_points
 drop policy if exists own_audit on trip_audit_log;
 create policy own_audit on trip_audit_log
   for select using (auth.uid() = user_id);
+
+-- INSERT was missing entirely (the table only ever had a SELECT policy),
+-- so Store.recordAuditDiff's insert was silently rejected by RLS for every
+-- edit to a locked trip — the compliance audit trail this app's own UI
+-- promises ("recorded in the audit log") never actually persisted anything.
+drop policy if exists own_audit_insert on trip_audit_log;
+create policy own_audit_insert on trip_audit_log
+  for insert with check (auth.uid() = user_id);
