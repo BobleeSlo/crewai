@@ -52,19 +52,36 @@ final class SupabaseService: ObservableObject {
     /// gets an interactive sign-in screen in the meantime instead of an
     /// indefinite spinner (round-8 UX review finding).
     func abandonSessionRestore() {
+        // Bump the generation so the still-suspended launch-time
+        // `refreshAuth()` can't write auth state that has since moved on.
+        authGeneration += 1
         didResolveInitialAuth = true
     }
 
+    /// Incremented whenever the caller decides an in-flight auth resolution
+    /// is no longer authoritative. Before `abandonSessionRestore()` existed,
+    /// the launch restore was the only auth call in flight (everything else
+    /// waited behind the launch spinner), so unconditional writes were safe.
+    /// Abandoning deliberately removes that serialization — without this
+    /// guard, a slow restore that finally timed out would sign out a user
+    /// who had since signed in manually, and one that finally succeeded
+    /// would yank a half-typed sign-in form out from under them (round-9 UX
+    /// review finding).
+    private var authGeneration = 0
+
     func refreshAuth() async {
-        defer { didResolveInitialAuth = true }
+        let generation = authGeneration
         do {
             let session = try await client.auth.session
+            guard generation == authGeneration else { return }
             isAuthenticated = true
             userEmail = session.user.email
         } catch {
+            guard generation == authGeneration else { return }
             isAuthenticated = false
             userEmail = nil
         }
+        didResolveInitialAuth = true
     }
 
     func signUp(email: String, password: String) async throws {

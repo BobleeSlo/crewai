@@ -167,10 +167,16 @@ struct SettingsView: View {
                         // acted with zero outcome feedback — the button
                         // gave no indication of how many trips (if any)
                         // were actually locked (round-3 UX review finding).
-                        let count = store.applyAutomaticLocks()
-                        lockResultMessage = count == 0
-                            ? "No trips needed locking."
-                            : "Locked \(count) trip\(count == 1 ? "" : "s")."
+                        switch store.applyAutomaticLocks() {
+                        case .locked(let count):
+                            lockResultMessage = count == 0
+                                ? "No trips needed locking."
+                                : "Locked \(count) trip\(count == 1 ? "" : "s")."
+                        case .skippedAwaitingSettings:
+                            // Don't claim success for a compliance action
+                            // that declined to run (round-9 UX finding).
+                            lockResultMessage = "Waiting for your settings to finish syncing — try again in a moment."
+                        }
                     } label: {
                         Label("Apply locks now", systemImage: "lock.fill")
                             .frame(maxWidth: .infinity)

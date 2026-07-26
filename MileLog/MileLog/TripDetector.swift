@@ -360,12 +360,24 @@ final class TripDetector: NSObject, ObservableObject {
     /// drive after that went silently unrecorded (round-6 UX review
     /// finding — a regression from round 5's own sign-out fix). Safe to
     /// call repeatedly: `startMonitoring()` early-returns when already on.
-    func resumeIfEnabled() {
-        guard store.settings.autoDetectEnabled,
-              permission == .authorizedAlways,
-              !isEnabled else { return }
-        startMonitoring()
-        log.log("Auto-detect re-armed after a session change.", level: .info)
+    func syncToSettings() {
+        // BOTH directions. The original `resumeIfEnabled()` only ever
+        // turned monitoring ON, so adopting a cloud settings copy that has
+        // `autoDetectEnabled == false` — over a detector the user had just
+        // switched on during the sync — left real GPS monitoring running
+        // while the Record screen read "Off — trips won't be detected
+        // automatically". Nothing in the detection path re-reads that flag,
+        // so the desync was permanent for the session: unexpected
+        // background GPS and surprise auto-recorded trips, with the UI
+        // insisting it was off (round-9 UX review finding).
+        if store.settings.autoDetectEnabled {
+            guard permission == .authorizedAlways, !isEnabled else { return }
+            startMonitoring()
+            log.log("Auto-detect re-armed after a session change.", level: .info)
+        } else if isEnabled {
+            stopMonitoring()
+            log.log("Auto-detect stopped to match this account's saved setting.", level: .info)
+        }
     }
 
     /// Discards an in-progress trip WITHOUT saving or pushing it anywhere —

@@ -166,8 +166,20 @@ final class Store: ObservableObject {
     /// "Apply locks now" button can actually tell the user what happened —
     /// previously this compliance-relevant action gave zero outcome
     /// feedback (round-3 UX review finding).
+    /// Three-state so callers can tell "swept, nothing qualified" apart
+    /// from "refused to sweep". Settings' "Apply locks now" button used a
+    /// bare `Int` and reported both as "No trips needed locking." — telling
+    /// the user a compliance action had succeeded when it had in fact
+    /// declined to run (round-9 UX review finding).
+    enum LockSweepResult: Equatable {
+        case locked(Int)
+        /// Settings for the signed-in account haven't been reconciled with
+        /// the cloud yet, so `lockAfterDays` may not be the user's own.
+        case skippedAwaitingSettings
+    }
+
     @discardableResult
-    func applyAutomaticLocks() -> Int {
+    func applyAutomaticLocks() -> LockSweepResult {
         // Never sweep against settings we know aren't this account's yet.
         // `lockAfterDays` defaults to 7, and this runs on every foreground —
         // so on a new device, a foreground landing between "trips
@@ -179,7 +191,21 @@ final class Store: ObservableObject {
         // editing (round-8 UX review finding). Signed-out/offline-only use is
         // unaffected: with no `supabase` there is no cloud copy to be waiting
         // for, and the local settings genuinely are the user's own.
-        if supabase != nil && settingsReconciledUserID == nil { return 0 }
+        // Keyed on `lastSyncedUserID` (UserDefaults-persisted) rather than
+        // on `supabase`, which is only assigned inside `initialSync` — so
+        // at `Store.init()` it is ALWAYS nil, and the one sweep that runs
+        // on every single launch bypassed this guard entirely. That made
+        // the whole thing reachable in the worst way: a failed first sync
+        // on a new device, then the app's own "Try again" button (which
+        // calls `retrySync()` → `save()`, persisting the full restored
+        // history alongside untouched default settings, without ever
+        // reconciling settings), then any relaunch → the entire history
+        // locked at the default 7 days instead of the user's real
+        // threshold, irreversibly (round-9 UX review finding — a defect in
+        // round 8's own follow-up fix).
+        if let account = lastSyncedUserID, settingsReconciledUserID != account {
+            return .skippedAwaitingSettings
+        }
 
         let cutoff = Date().addingTimeInterval(-Double(settings.lockAfterDays) * 86_400)
         var lockedCount = 0
@@ -190,7 +216,7 @@ final class Store: ObservableObject {
             push(trips[i])
         }
         if lockedCount > 0 { save() }
-        return lockedCount
+        return .locked(lockedCount)
     }
 
     // MARK: - Lookups
@@ -825,6 +851,15 @@ final class Store: ObservableObject {
             // account's settings). Only the genuinely-absent case may push.
             do {
                 if let cloudSettings = try await supabase.pullSettings() {
+                    // The cloud copy is this account's real data and wins —
+                    // but adopting it can flip `autoDetectEnabled` under a
+                    // detector the user just switched ON during the sync,
+                    // and nothing in the detection path re-reads that flag.
+                    // `resumeIfEnabled()` below only ever turns monitoring
+                    // on, so the app would keep recording trips in the
+                    // background while the toggle read "Off" (round-9 UX
+                    // review finding). `syncToSettings()` reconciles both
+                    // directions.
                     settings = cloudSettings
                 } else {
                     // Confirmed absent, not merely unreachable: safe to
@@ -848,7 +883,7 @@ final class Store: ObservableObject {
         // still rendering ON and every subsequent drive going unrecorded
         // (round-6 UX review finding). Placed after the settings pull so
         // it reflects the account that actually just signed in.
-        detector?.resumeIfEnabled()
+        detector?.syncToSettings()
         // Now that this account's real `lockAfterDays` is known, run the
         // sweep that `applyAutomaticLocks()` deliberately skipped while
         // settings were still unreconciled (see its own guard).
@@ -996,16 +1031,17 @@ final class Store: ObservableObject {
     /// assert local defaults over a cloud row this device hasn't read yet.
     func saveSettings() {
         save()
-        guard let supabase, settingsReconciledUserID != nil else { return }
+        // Checks WHICH account, not merely that some reconcile happened:
+        // between signing in as B and `initialSync` clearing the marker,
+        // it still holds A — so a bare non-nil check could push A's values
+        // into B's row (round-9 UX review finding).
+        guard let supabase,
+              let reconciled = settingsReconciledUserID,
+              reconciled == lastSyncedUserID else { return }
         let snapshot = settings
         Task { try? await supabase.pushSettings(snapshot) }
     }
 
-    private func pushSettings() {
-        guard let supabase else { return }
-        let snapshot = settings
-        Task { try? await supabase.pushSettings(snapshot) }
-    }
 
     private func load() {
         let decoder = JSONDecoder()
