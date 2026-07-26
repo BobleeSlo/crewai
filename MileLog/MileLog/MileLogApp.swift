@@ -19,6 +19,7 @@ struct MileLogApp: App {
         notifications.store = store
         notifications.detectionLog = log
         let detector = TripDetector(store: store, log: log, notifications: notifications)
+        notifications.detector = detector
         let location = LocationManager()
         // Wire the two recorders to each other so they can refuse to overlap.
         location.detector = detector

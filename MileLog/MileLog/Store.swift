@@ -329,17 +329,39 @@ final class Store: ObservableObject {
 
     private func load() {
         let decoder = JSONDecoder()
-        if let data = try? Data(contentsOf: vehiclesURL),
-           let decoded = try? decoder.decode([Vehicle].self, from: data) {
+        if let decoded = loadOrPreserveCorrupted([Vehicle].self, url: vehiclesURL, decoder: decoder) {
             vehicles = decoded
         }
-        if let data = try? Data(contentsOf: tripsURL),
-           let decoded = try? decoder.decode([Trip].self, from: data) {
+        if let decoded = loadOrPreserveCorrupted([Trip].self, url: tripsURL, decoder: decoder) {
             trips = decoded
         }
-        if let data = try? Data(contentsOf: settingsURL),
-           let decoded = try? decoder.decode(UserSettings.self, from: data) {
+        if let decoded = loadOrPreserveCorrupted(UserSettings.self, url: settingsURL, decoder: decoder) {
             settings = decoded
         }
+    }
+
+    /// Distinguishes "file doesn't exist" (fine — first launch, `vehicles`/
+    /// `trips`/`settings` correctly stay at their empty/default values) from
+    /// "file exists but failed to decode" (NOT fine as a silent no-op: the
+    /// `@Published` property would be left at that same empty/default value
+    /// with nothing to tell the two cases apart, and `save()` unconditionally
+    /// rewrites ALL THREE files on every future mutation — so the very next
+    /// trip added, vehicle edited, or setting changed anywhere in the app
+    /// would permanently overwrite the corrupted-but-still-present file with
+    /// that empty state, destroying whatever was recoverable in it). `.atomic`
+    /// writes (already used everywhere in this file) rule out a kill-mid-
+    /// write as the cause, but not a genuinely incompatible future schema
+    /// change — this app has already been through several. On a genuine
+    /// decode failure, the file is renamed aside instead of being left where
+    /// the next save() would silently clobber it (round-2 adversarial review
+    /// finding).
+    private func loadOrPreserveCorrupted<T: Decodable>(_ type: T.Type, url: URL, decoder: JSONDecoder) -> T? {
+        guard let data = try? Data(contentsOf: url) else { return nil }
+        if let decoded = try? decoder.decode(T.self, from: data) { return decoded }
+        let backupURL = url.deletingPathExtension().appendingPathExtension("corrupted.json")
+        try? FileManager.default.removeItem(at: backupURL)
+        try? FileManager.default.moveItem(at: url, to: backupURL)
+        print("MileLog: \(url.lastPathComponent) exists but failed to decode — backed up to \(backupURL.lastPathComponent) instead of letting it be silently overwritten.")
+        return nil
     }
 }

@@ -251,9 +251,24 @@ final class TripDetector: NSObject, ObservableObject {
     /// `stationaryTimeoutMinutes` that happens to coincide with an unrelated
     /// relaunch must NOT be flagged, or a later, genuinely separate trip in
     /// the same vehicle could get force-merged into it (adversarial review
-    /// finding). Comfortably below the smallest confirmed app-kill gap seen
-    /// in the field (23 min).
-    private let relaunchRecoveryMinGapMinutes: Double = 15
+    /// finding). This is a MARGIN ABOVE the user's own configured
+    /// `stationaryTimeoutMinutes` (Settings-adjustable 2-20 min), not a bare
+    /// absolute number — a bare constant here previously sat below the top
+    /// of that range, which made the guard a complete no-op for any user
+    /// with a longer timeout configured, since `auditActiveTrip` already
+    /// guarantees `stationaryMin >= timeout` before this is ever checked
+    /// (round-2 adversarial review finding).
+    ///
+    /// Tradeoff, accepted deliberately: for a user with a long configured
+    /// timeout (near 20 min), the resulting threshold (up to 35 min) can
+    /// exceed the smallest field-confirmed app-kill-during-driving gap
+    /// (23 min), so some real relaunch fragmentation for that user won't
+    /// auto-heal. That's the right side to err on — a user who tolerates
+    /// longer real stops makes "real stop" and "app died" harder to tell
+    /// apart, and under-merging (an occasional extra, correctly-attributed
+    /// trip row) is far cheaper than over-merging (silently corrupting a
+    /// genuinely separate trip's classification and distance).
+    private let relaunchRecoveryMinGapAboveTimeoutMinutes: Double = 15
     /// Sanity bound on the reclaim itself: the new trip's start must be
     /// reachable from the old trip's last known point within the elapsed
     /// gap at a generous highway speed — otherwise this isn't a
@@ -519,6 +534,15 @@ final class TripDetector: NSObject, ObservableObject {
                 log.log("Verification passed but no vehicle is registered at all — trip dropped.", level: .error)
                 return
             }
+            // Log whenever the vehicle is an unconfirmed GUESS, not just a
+            // name-only BT match (matchVehicle already warns for that case)
+            // — otherwise a silently wrong vehicle attribution has zero
+            // trace in the Detection log to explain it (round-2 adversarial
+            // review finding).
+            if confirmedVehicle == nil {
+                log.log("No Bluetooth match — guessing vehicle from most recent trip: \(vehicle.name). Verify this trip's vehicle is correct.",
+                        level: .warning)
+            }
             // allowMerge is disabled whenever the vehicle is only a GUESS
             // (fallbackVehicle picks "whichever vehicle was most recently
             // driven", which is exactly wrong when it's wrong: a car with no
@@ -678,9 +702,11 @@ final class TripDetector: NSObject, ObservableObject {
                 // is still a perfectly normal, trustworthy ending — arming
                 // the reclaim for THAT would risk force-merging a later,
                 // genuinely separate trip (adversarial review finding).
-                // relaunchRecoveryMinGapMinutes filters for gaps clearly
-                // beyond what a real stop should ever produce.
-                if isPostRelaunch, stationaryMin >= relaunchRecoveryMinGapMinutes {
+                // relaunchRecoveryMinGapAboveTimeoutMinutes filters for gaps
+                // clearly beyond what a real stop should ever produce,
+                // scaled off this user's own configured timeout rather than
+                // a bare constant (round-2 adversarial review finding).
+                if isPostRelaunch, stationaryMin >= timeout + relaunchRecoveryMinGapAboveTimeoutMinutes {
                     // This is a single slot, not a queue — if an earlier
                     // reclaim opportunity is still within its own window and
                     // hasn't been consumed yet, overwriting it here silently
@@ -751,7 +777,11 @@ final class TripDetector: NSObject, ObservableObject {
         if let ctx = relaunchRecoveryContext,
            ctx.vehicleID == vehicle.id,
            Date().timeIntervalSince(ctx.endedAt) < relaunchRecoveryWindowMinutes * 60,
-           let lastTrip = store.trips.first(where: { $0.id == ctx.tripID }),
+           // Same !isLocked guard as the normal merge path below — currently
+           // unreachable in practice (relaunchRecoveryWindowMinutes is far
+           // smaller than any realistic lockAfterDays), but kept consistent
+           // rather than latent (round-2 adversarial review finding).
+           let lastTrip = store.trips.first(where: { $0.id == ctx.tripID && !$0.isLocked }),
            // Same intervening-vehicle guard as the normal merge path below —
            // if a different vehicle was genuinely driven in between, this
            // isn't a continuation, it's a real return to vehicle A later.
@@ -1185,13 +1215,25 @@ final class TripDetector: NSObject, ObservableObject {
         // the actor isolation matches store.updateTrip's requirements
         // (so no await needed there — only the geocoder calls are async).
         let storeRef = store
-        Task { @MainActor [trip, startCoord, endCoord, storeRef] in
+        let tripID = state.id
+        Task { @MainActor [startCoord, endCoord, storeRef, tripID] in
             let start = await Self.reverseGeocode(startCoord)
             let end = await Self.reverseGeocode(endCoord)
-            var t = trip
-            t.startAddress = start
-            t.endAddress = end
-            storeRef.updateTrip(t)
+            // Look up whatever is CURRENTLY stored for this id rather than
+            // replaying the snapshot captured back when this trip ended —
+            // geocoding can take long enough (CLGeocoder has no timeout,
+            // and can stall for exactly the tunnel/dead-zone conditions
+            // that also trigger app relaunches) for the user to have
+            // reclassified this trip via its notification, or for it to
+            // have been merged/reclaimed and re-ended with different final
+            // data under the same id in the meantime. Blindly replaying the
+            // old snapshot would silently clobber that newer, correct state
+            // with stale type/customer/distance (adversarial review
+            // finding). No-ops harmlessly if the trip is gone entirely.
+            guard var current = storeRef.trips.first(where: { $0.id == tripID }) else { return }
+            current.startAddress = start
+            current.endAddress = end
+            storeRef.updateTrip(current)
         }
 
         manager.stopUpdatingLocation()
@@ -1253,6 +1295,22 @@ final class TripDetector: NSObject, ObservableObject {
         var startedAt: Date
     }
 
+    private var activeTripPointsURL: URL {
+        let dir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        return dir.appendingPathComponent("active-trip-points.json")
+    }
+    private var lastPointsPersistAt: Date = .distantPast
+    /// `points` grows unboundedly over a long drive (a point every >10m of
+    /// travel — hundreds or thousands over a multi-hour highway trip) and
+    /// re-encoding the WHOLE array on every throttled write scales its cost
+    /// with trip length, on the same actor that has to process time-critical
+    /// GPS callbacks (round-2 adversarial review finding — undercuts the
+    /// very reason the throttle below exists). Persisted separately from the
+    /// lightweight header at this much coarser interval; a kill between two
+    /// points-writes loses at most this many seconds of polyline (still
+    /// recoverable up to that point), never the whole trip.
+    private let pointsPersistIntervalSeconds: TimeInterval = 30
+
     /// Writes the active trip to disk for crash/kill recovery. Throttled to
     /// avoid a full JSON re-encode + file rewrite on every single GPS
     /// callback — on a long drive those can arrive every few metres, and
@@ -1261,15 +1319,28 @@ final class TripDetector: NSObject, ObservableObject {
     /// `force` bypasses the throttle for state-transition moments (trip
     /// start, vehicle switch, merge) where an accurate on-disk snapshot
     /// immediately after the transition matters most.
+    ///
+    /// The trip header (everything except `points`) and the points array
+    /// are written to separate files at different cadences — see
+    /// `pointsPersistIntervalSeconds`'s doc comment for why.
     private func persistActiveTrip(force: Bool = false) {
         guard let trip = activeTrip else { return }
         guard force || Date().timeIntervalSince(lastPersistAt) >= persistThrottleSeconds else { return }
         lastPersistAt = Date()
-        try? JSONEncoder().encode(trip).write(to: activeTripURL, options: .atomic)
+
+        var header = trip
+        header.points = []
+        try? JSONEncoder().encode(header).write(to: activeTripURL, options: .atomic)
+
+        if force || Date().timeIntervalSince(lastPointsPersistAt) >= pointsPersistIntervalSeconds {
+            lastPointsPersistAt = Date()
+            try? JSONEncoder().encode(trip.points).write(to: activeTripPointsURL, options: .atomic)
+        }
     }
 
     private func clearPersistedActiveTrip() {
         try? FileManager.default.removeItem(at: activeTripURL)
+        try? FileManager.default.removeItem(at: activeTripPointsURL)
     }
 
     /// NOT a real crash-recovery mechanism — only `startedAt` is persisted,
@@ -1353,9 +1424,21 @@ final class TripDetector: NSObject, ObservableObject {
         // 3. Restore in-progress trip and resume GPS + audit so the trip's
         //    end (stationary timeout) can still be detected.
         guard let data = try? Data(contentsOf: activeTripURL) else { return }
-        guard let trip = try? JSONDecoder().decode(ActiveTripState.self, from: data) else {
+        guard var trip = try? JSONDecoder().decode(ActiveTripState.self, from: data) else {
             log.log("Found active-trip.json but failed to decode it — an in-progress trip may have been lost.", level: .error)
+            // Otherwise this same failure re-logs on every future relaunch
+            // until a brand new trip happens to overwrite the file
+            // (round-2 adversarial review finding).
+            clearPersistedActiveTrip()
             return
+        }
+        // The points array is persisted separately and less often (see
+        // pointsPersistIntervalSeconds) — reassemble it here. Missing/stale
+        // is fine (just means up to that many seconds of polyline is gone,
+        // not the whole trip).
+        if let pointsData = try? Data(contentsOf: activeTripPointsURL),
+           let points = try? JSONDecoder().decode([RecordedPoint].self, from: pointsData) {
+            trip.points = points
         }
         activeTrip = trip
         log.log("Restored in-progress trip after relaunch; resumed GPS and audit.", level: .info)

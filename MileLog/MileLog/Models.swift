@@ -145,6 +145,65 @@ struct Trip: Identifiable, Codable, Hashable {
     var isLocked: Bool
     var lockedAt: Date? = nil
 
+    init(id: UUID = UUID(), vehicleID: UUID, type: TripType, purpose: String, customerName: String,
+        startedAt: Date, endedAt: Date, startAddress: String, endAddress: String,
+        startLat: Double? = nil, startLng: Double? = nil, endLat: Double? = nil, endLng: Double? = nil,
+        distanceKm: Double, notes: String, isLocked: Bool, lockedAt: Date? = nil) {
+        self.id = id
+        self.vehicleID = vehicleID
+        self.type = type
+        self.purpose = purpose
+        self.customerName = customerName
+        self.startedAt = startedAt
+        self.endedAt = endedAt
+        self.startAddress = startAddress
+        self.endAddress = endAddress
+        self.startLat = startLat
+        self.startLng = startLng
+        self.endLat = endLat
+        self.endLng = endLng
+        self.distanceKm = distanceKm
+        self.notes = notes
+        self.isLocked = isLocked
+        self.lockedAt = lockedAt
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id, vehicleID, type, purpose, customerName, startedAt, endedAt
+        case startAddress, endAddress, startLat, startLng, endLat, endLng
+        case distanceKm, notes, isLocked, lockedAt
+    }
+
+    /// This is the most consequential model in the app — every reimbursement
+    /// figure traces back through it — so it gets the same hand-written
+    /// Decodable treatment as `Vehicle`/`UserSettings`/`ActiveTripState`
+    /// rather than relying on synthesized decode, which does NOT apply a
+    /// stored property's default (like `id`'s `= UUID()`) when its key is
+    /// simply missing — it throws instead (round-2 adversarial review
+    /// finding: flagged as the one model with this class of latent risk not
+    /// yet covered, even though `id` in particular has been present since
+    /// this model's very first version).
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+        vehicleID = try c.decode(UUID.self, forKey: .vehicleID)
+        type = try c.decode(TripType.self, forKey: .type)
+        purpose = try c.decode(String.self, forKey: .purpose)
+        customerName = try c.decode(String.self, forKey: .customerName)
+        startedAt = try c.decode(Date.self, forKey: .startedAt)
+        endedAt = try c.decode(Date.self, forKey: .endedAt)
+        startAddress = try c.decode(String.self, forKey: .startAddress)
+        endAddress = try c.decode(String.self, forKey: .endAddress)
+        startLat = try c.decodeIfPresent(Double.self, forKey: .startLat)
+        startLng = try c.decodeIfPresent(Double.self, forKey: .startLng)
+        endLat = try c.decodeIfPresent(Double.self, forKey: .endLat)
+        endLng = try c.decodeIfPresent(Double.self, forKey: .endLng)
+        distanceKm = try c.decode(Double.self, forKey: .distanceKm)
+        notes = try c.decode(String.self, forKey: .notes)
+        isLocked = try c.decode(Bool.self, forKey: .isLocked)
+        lockedAt = try c.decodeIfPresent(Date.self, forKey: .lockedAt)
+    }
+
     /// Reimbursement uses different rates per trip type. Private trips never reimburse.
     func reimbursement(businessRate: Double, commuteRate: Double) -> Double {
         switch type {

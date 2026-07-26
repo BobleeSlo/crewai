@@ -12,6 +12,10 @@ final class NotificationManager: NSObject, ObservableObject, UNUserNotificationC
     /// Set by the app on launch so action taps can route to the store.
     weak var store: Store?
     weak var detectionLog: DetectionLog?
+    /// Set by the app on launch so a classify tap that no longer finds its
+    /// trip in store.trips can tell "merged back into an in-progress trip"
+    /// apart from "gone for some other reason."
+    weak var detector: TripDetector?
 
     private let center = UNUserNotificationCenter.current()
     private let classifyCategoryID = "TRIP_CLASSIFY"
@@ -125,12 +129,27 @@ final class NotificationManager: NSObject, ObservableObject, UNUserNotificationC
 
     @MainActor
     private func handleAction(actionID: String, tripIDString: String?) {
-        guard
-            let idString = tripIDString,
-            let tripID = UUID(uuidString: idString),
-            let store,
-            var trip = store.trips.first(where: { $0.id == tripID })
-        else { return }
+        guard let idString = tripIDString, let tripID = UUID(uuidString: idString), let store else { return }
+
+        guard var trip = store.trips.first(where: { $0.id == tripID }) else {
+            // The trip this notification was for isn't in store.trips
+            // anymore — most likely it got merged/reclaimed back into an
+            // in-progress trip (a brief stop, or a relaunch-interrupted
+            // drive resuming) before the user tapped the action. There's
+            // nowhere to apply the classification: an in-progress
+            // ActiveTripState doesn't carry a type yet, it'll get a fresh
+            // one from TripClassifier whenever it next actually ends.
+            // Logging this explicitly closes what was previously a totally
+            // silent, undiagnosable no-op (round-2 adversarial review
+            // finding) — the tap is still lost, but now traceable.
+            if detector?.activeTrip?.id == tripID {
+                detectionLog?.log("Classify tap for \(idString.prefix(8)) ignored — that trip is back in progress (merged with continued driving) and will be reclassified when it next ends.",
+                                   level: .warning)
+            } else {
+                detectionLog?.log("Classify tap for \(idString.prefix(8)) ignored — trip no longer found.", level: .warning)
+            }
+            return
+        }
 
         let newType: TripType?
         switch actionID {
