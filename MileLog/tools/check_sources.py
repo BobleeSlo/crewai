@@ -25,6 +25,7 @@ import hashlib
 import io
 import os
 import shutil
+import subprocess
 import sys
 import tarfile
 import urllib.request
@@ -38,10 +39,31 @@ def sha(path):
         return hashlib.sha1(f.read()).hexdigest()
 
 
+def download(url):
+    """Fetch a URL, falling back to curl when urllib has no CA bundle.
+
+    python.org builds on macOS ship their own certificate store and ignore
+    the system keychain, so urllib fails with CERTIFICATE_VERIFY_FAILED on a
+    Mac where every other tool works. curl uses the system trust store.
+    """
+    try:
+        with urllib.request.urlopen(url, timeout=120) as response:
+            return response.read()
+    except Exception as first_error:
+        print("  urllib failed (%s) — retrying with curl" % type(first_error).__name__)
+        temp = os.path.join(os.environ.get("TMPDIR", "/tmp"),
+                            "milelog-ref-download.tgz")
+        status = subprocess.call(["curl", "-fsSL", "-o", temp, url])
+        if status != 0:
+            sys.exit("curl could not download %s either (exit %d)"
+                     % (url, status))
+        with open(temp, "rb") as f:
+            return f.read()
+
+
 def fetch_reference():
     print("Downloading reference sources (%s)..." % REF_SHA[:12])
-    with urllib.request.urlopen(TARBALL, timeout=120) as response:
-        blob = response.read()
+    blob = download(TARBALL)
     dest = os.path.join(
         os.environ.get("TMPDIR", "/tmp"), "milelog-ref-%s" % REF_SHA[:12])
     if os.path.isdir(dest):
