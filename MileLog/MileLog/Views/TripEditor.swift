@@ -229,13 +229,7 @@ struct TripEditor: View {
                         dismiss()
                     }
                 } label: {
-                    Text("Save")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundColor(.white)
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 6)
-                        .background(Theme.brandGradient)
-                        .clipShape(Capsule())
+                    SaveButtonLabel()
                 }
             }
             if isNew {
@@ -295,5 +289,26 @@ struct TripEditor: View {
                     }
             }
         }
+    }
+}
+
+/// The Save button's pill label, pulled out of `body`.
+///
+/// Inline, this six-modifier chain sat inside an already very large
+/// `body`, and the type-checker gave up on the whole expression:
+/// "unable to type-check this expression in reasonable time". The chain
+/// is not unusual on its own — it is the size of the enclosing
+/// expression that defeats the solver. Giving it its own `View` caps the
+/// work at this small scope, and the leading-dot shorthands are spelled
+/// out so nothing has to be inferred from context.
+private struct SaveButtonLabel: View {
+    var body: some View {
+        Text("Save")
+            .font(Font.subheadline.weight(.semibold))
+            .foregroundColor(Color.white)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 6)
+            .background(Theme.brandGradient)
+            .clipShape(Capsule())
     }
 }
