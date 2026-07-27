@@ -282,7 +282,12 @@ final class SupabaseService: ObservableObject {
             .eq("id", value: receipt.id)
             .execute()
         if !receipt.photoPath.isEmpty {
-            try? await client.storage.from("receipts").remove(paths: [receipt.photoPath])
+            // `remove` returns the deleted objects; discarded on purpose.
+            // The row is already gone, so a failed blob delete leaves an
+            // orphaned file rather than a broken receipt — not worth
+            // failing the call for.
+            _ = try? await client.storage.from("receipts")
+                .remove(paths: [receipt.photoPath])
         }
     }
 
