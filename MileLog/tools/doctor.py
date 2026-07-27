@@ -38,8 +38,10 @@ HEX = r"[0-9A-Fa-f]{24}"
 # and pairs the wrong id with the wrong body.
 OBJ_HEADER_RE = re.compile(r"^(\s*)(%s)\b(?:\s*/\*.*?\*/)?\s*=\s*\{(.*)$" % HEX)
 ENTRY_RE = re.compile(r"^([ \t]*)(%s)(\s*/\*(.*?)\*/)?\s*,\s*$" % HEX)
-ATTR_RE = re.compile(r"\b(path|name|sourceTree|productType|isa)\s*=\s*"
-                     r"(\"[^\"]*\"|[^;]+);")
+# productName must be listed explicitly: \bname does not match inside
+# "productName", so it would otherwise never be captured.
+ATTR_RE = re.compile(r"\b(path|name|sourceTree|productType|productName|isa)"
+                     r"\s*=\s*(\"[^\"]*\"|[^;]+);")
 LIST_RE = r"%s\s*=\s*\((.*?)\)\s*;"
 
 
@@ -90,7 +92,7 @@ class Project(object):
         self.root = root
         self.refs, self.groups, self.parent = {}, {}, {}
         self.build_files, self.phases, self.targets, self.synced = {}, {}, {}, {}
-        self.exception_sets = {}
+        self.exception_sets, self.package_products = {}, {}
 
         for obj_id, isa, body in iter_objects(text):
             if isa == "PBXFileReference":
@@ -113,10 +115,14 @@ class Project(object):
                 self.build_files[obj_id] = ref.group(1) if ref else ""
             elif isa == "PBXSourcesBuildPhase":
                 self.phases[obj_id] = list_of(body, "files")
+            elif isa == "XCSwiftPackageProductDependency":
+                self.package_products[obj_id] = attrs_of(body).get(
+                    "productName", obj_id)
             elif isa == "PBXNativeTarget":
                 info = attrs_of(body)
                 info["buildPhases"] = list_of(body, "buildPhases")
                 info["synced"] = list_of(body, "fileSystemSynchronizedGroups")
+                info["packages"] = list_of(body, "packageProductDependencies")
                 self.targets[obj_id] = info
 
     def path_of(self, node_id):
@@ -216,6 +222,23 @@ def main(argv):
         explicit = sum(1 for _, o in sources if o == "Compile Sources")
         print("      via Compile Sources:     %d" % explicit)
         print("      via synced folders:      %d" % (len(sources) - explicit))
+
+    print("\n-- Swift package products linked per target ------------------")
+    if not proj.package_products:
+        print("  the project declares no package products at all")
+    for tid, info in sorted(proj.targets.items(),
+                            key=lambda kv: kv[1].get("name", "")):
+        linked = [proj.package_products.get(p, p) for p in info["packages"]]
+        print("  %-22s %s" % (info.get("name", tid),
+                              ", ".join(sorted(linked)) or "(none)"))
+    orphaned = set(proj.package_products) - {
+        p for t in proj.targets.values() for p in t["packages"]}
+    for pid in orphaned:
+        print("  !! product %r is declared but linked to NO target"
+              % proj.package_products[pid])
+        print("     That is why `import %s` fails: the package is attached to"
+              % proj.package_products[pid])
+        print("     the project, but no target actually links it.")
 
     print("\n-- Synchronized folders (Xcode 16) ---------------------------")
     if not proj.synced:
