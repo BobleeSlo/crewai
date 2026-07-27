@@ -155,13 +155,18 @@ struct TripEditor: View {
     /// Vehicle reassignment, including archived vehicles.
     @ViewBuilder
     private var vehicleSection: some View {
-        Section("Vehicle") {
+        // Builder form, not `Section("Vehicle") { ... } footer: { ... }`:
+        // the string-title convenience is Section(_:content:) and takes no
+        // footer, so the title has to move into an explicit header.
+        Section {
             Picker("Vehicle", selection: $trip.vehicleID) {
                 ForEach(vehicleOptions) { vehicle in
                     Text(vehicleLabel(vehicle)).tag(vehicle.id)
                 }
             }
             .disabled(isLocked)
+        } header: {
+            Text("Vehicle")
         } footer: {
             // Auto-detection's Bluetooth-fallback path can occasionally
             // guess the wrong vehicle when no BT pairing is available
