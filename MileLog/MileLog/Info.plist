@@ -36,11 +36,11 @@
 	<key>NSCameraUsageDescription</key>
 	<string>Take a photo of a receipt to attach it to a trip.</string>
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
-	<string>MileLog records trips in the background so you don't have to.</string>
+	<string>MileLog records trips in the background so you do not have to start them manually.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>MileLog measures the distance of your trips.</string>
 	<key>NSMotionUsageDescription</key>
-	<string>Confirms you're actually driving, so trips aren't started by walking.</string>
+	<string>Confirms that you are actually driving, so trips are not started by walking.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Attach an existing receipt photo to a trip.</string>
 	<key>SUPABASE_ANON_KEY</key>

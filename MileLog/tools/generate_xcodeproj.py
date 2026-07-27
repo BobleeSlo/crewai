@@ -89,13 +89,15 @@ def write_info_plist():
         "NSLocationWhenInUseUsageDescription":
             "MileLog measures the distance of your trips.",
         "NSLocationAlwaysAndWhenInUseUsageDescription":
-            "MileLog records trips in the background so you don't have to.",
+            "MileLog records trips in the background so you do not have to "
+            "start them manually.",
         "NSCameraUsageDescription":
             "Take a photo of a receipt to attach it to a trip.",
         "NSPhotoLibraryUsageDescription":
             "Attach an existing receipt photo to a trip.",
         "NSMotionUsageDescription":
-            "Confirms you're actually driving, so trips aren't started by walking.",
+            "Confirms that you are actually driving, so trips are not started "
+            "by walking.",
         # --- Password-reset deep link ---------------------------------
         # Must match SupabaseConfig.passwordResetRedirect, and must also be
         # allow-listed in Supabase → Authentication → URL Configuration.
