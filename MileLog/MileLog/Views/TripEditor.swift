@@ -48,6 +48,52 @@ struct TripEditor: View {
         }
     }
 
+    /// The Save button's action: check the on-screen copy is still fresh,
+    /// then either save or raise the matching alert.
+    ///
+    /// Lifted out of `body` because the type-checker could not solve the
+    /// enclosing expression in reasonable time. `body` is a single `some
+    /// View` expression covering the whole Form and toolbar, and every
+    /// closure inside it is part of that one solve; a method has an
+    /// explicit signature, so it gets checked on its own.
+    private func attemptSave() {
+        // This screen's `@State trip` was seeded once, when it was first
+        // pushed — it doesn't refresh just because the live trip changed
+        // while this screen stayed open. Two ways that happens: (1) it got
+        // locked elsewhere ("Apply locks now", or the automatic
+        // lockAfterDays sweep re-running on foreground), or (2)
+        // TripDetector's own brief-stop merge resumed and re-ended it under
+        // the SAME id with different final mileage — `endedAt` changing is
+        // the same cheap "this got re-ended" marker TripDetector's own
+        // geocode-backfill Task already uses for an identical check
+        // (round-14 adversarial review finding). `Store.updateTrip`'s merge
+        // already refuses to apply distance/type from a stale snapshot in
+        // either case, but saving straight through would give zero
+        // indication anything didn't apply (round-12/14 findings) — check
+        // freshness first.
+        let live: Trip? = store.trips.first { $0.id == trip.id }
+        if !isNew, live == nil {
+            // Not locked-elsewhere and not merely re-ended — the trip has
+            // been pulled OUT of store.trips entirely, which only happens
+            // when TripDetector's brief-stop merge reclaims it as an
+            // in-progress drive again (same reasoning NotificationManager's
+            // "back in progress" handling already relies on for the
+            // identical scenario). Saving now would fall through to
+            // Store.addTrip's un-merged fallback — bypassing every
+            // field-level protection this whole mechanism exists for — and
+            // then get silently clobbered again the moment the resumed
+            // drive truly ends. Block entirely rather than pretending to
+            // save (round-15 adversarial review finding).
+            showsInProgressAlert = true
+        } else if let live,
+                  (!isLocked && live.isLocked) || live.endedAt != trip.endedAt {
+            showsStaleLockAlert = true
+        } else {
+            onSave(trip)
+            dismiss()
+        }
+    }
+
     var body: some View {
         Form {
             if isLocked {
@@ -188,47 +234,7 @@ struct TripEditor: View {
         .keyboardDoneToolbar()
         .toolbar {
             ToolbarItem(placement: .confirmationAction) {
-                Button {
-                    // This screen's `@State trip` was seeded once, when it
-                    // was first pushed — it doesn't refresh just because the
-                    // live trip changed while this screen stayed open. Two
-                    // ways that happens: (1) it got locked elsewhere
-                    // ("Apply locks now", or the automatic lockAfterDays
-                    // sweep re-running on foreground), or (2) TripDetector's
-                    // own brief-stop merge resumed and re-ended it under the
-                    // SAME id with different final mileage — `endedAt`
-                    // changing is the same cheap "this got re-ended" marker
-                    // TripDetector's own geocode-backfill Task already uses
-                    // for an identical check (round-14 adversarial review
-                    // finding). `Store.updateTrip`'s merge already refuses
-                    // to apply distance/type from a stale snapshot in
-                    // either case, but saving straight through would give
-                    // zero indication anything didn't apply (round-12/14
-                    // findings) — check freshness first.
-                    let live = store.trips.first(where: { $0.id == trip.id })
-                    if !isNew, live == nil {
-                        // Not locked-elsewhere and not merely re-ended —
-                        // the trip has been pulled OUT of store.trips
-                        // entirely, which only happens when TripDetector's
-                        // brief-stop merge reclaims it as an in-progress
-                        // drive again (same reasoning NotificationManager's
-                        // "back in progress" handling already relies on for
-                        // the identical scenario). Saving now would fall
-                        // through to Store.addTrip's un-merged fallback —
-                        // bypassing every field-level protection this whole
-                        // mechanism exists for — and then get silently
-                        // clobbered again the moment the resumed drive
-                        // truly ends. Block entirely rather than pretending
-                        // to save (round-15 adversarial review finding).
-                        showsInProgressAlert = true
-                    } else if let live,
-                       (!isLocked && live.isLocked) || live.endedAt != trip.endedAt {
-                        showsStaleLockAlert = true
-                    } else {
-                        onSave(trip)
-                        dismiss()
-                    }
-                } label: {
+                Button(action: attemptSave) {
                     SaveButtonLabel()
                 }
             }
