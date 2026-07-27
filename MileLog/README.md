@@ -49,44 +49,42 @@ MileLog/
    - **Project URL**  → `https://xxxx.supabase.co`
    - **Publishable (anon) key** → `sb_publishable_...`
 
-### 2) Xcode project (one-time, ~10 min)
+### 2) Xcode project (one-time, ~2 min)
 
 You need **Xcode 15+** and an Apple ID. A paid Apple Developer account ($99/yr)
 is only required to publish to the App Store; you can install on your own iPhone
 for free with any Apple ID.
 
-1. Xcode → *File ▸ New ▸ Project ▸ iOS ▸ App*.
-   - Product Name: `MileLog`, Interface: **SwiftUI**, Language: **Swift**.
-   - Minimum deployment target: **iOS 17.0** or later.
-     *(iOS 17 is required — the code uses the two-parameter
-     `onChange(of:) { oldValue, newValue in }`, which is iOS 17+. Building
-     against iOS 16 fails on five call sites. Nothing in the app needs
-     iOS 18, so 17.0 is the correct floor.)*
-2. Delete the auto-generated `ContentView.swift` and `MileLogApp.swift`, then
-   drag every file from this folder's `MileLog/` (the inner one) into the Xcode
-   project navigator → *Copy items if needed*, *Create groups*.
-3. Add the **Supabase Swift SDK**:
-   *File ▸ Add Package Dependencies…* → URL: `https://github.com/supabase/supabase-swift`
-   → choose **Up to Next Major Version**, add the `Supabase` library to your app target.
-4. Add **location permission strings** (target → *Info* tab → "+" a new key):
-   - `Privacy - Location When In Use Usage Description` →
-     *"MileLog measures the distance of your trips."*
-   - `Privacy - Location Always and When In Use Usage Description` →
-     *"MileLog records trips in the background so you don't have to."*
-     *(only needed for Phase 3, leave for now)*
-5. **Add your Supabase credentials** (target → *Info* tab, "+" two new keys, type
-   *String*):
-   - `SUPABASE_URL` → `https://xxxx.supabase.co` *(your Project URL)*
-   - `SUPABASE_ANON_KEY` → `sb_publishable_...` *(your publishable key)*
-6. **Register the password-reset URL scheme** (target → *Info* tab → *URL
-   Types* → "+", set **URL Schemes** to `milelog`). Then add
-   `milelog://auth/reset` to your Supabase project's *Authentication → URL
-   Configuration → Redirect URLs* allow-list. Without **both**, the
-   "Forgot password?" email link lands on the project's Site URL
-   (`http://localhost:3000` on a default project) instead of reopening the
-   app, and the user can never complete the reset.
-7. Build & run on the Simulator or your iPhone. Create an account on the sign-in
-   screen, then log a trip from the *Record* tab.
+**The Xcode project is checked in** — `MileLog.xcodeproj` already has all 37
+sources in Compile Sources, the Supabase package reference, an `Info.plist`
+with every required key, the `location` background mode, the `milelog://` URL
+scheme, and an iOS 17.0 deployment target. So:
+
+1. `open MileLog.xcodeproj`
+2. Wait for Xcode to resolve the **supabase-swift** package (first open only).
+3. Add your credentials — they are deliberately *not* in the committed plist:
+   ```
+   cp Secrets.xcconfig.example Secrets.xcconfig
+   ```
+   Fill in the two values, then in Xcode select the **project** (not the
+   target) → *Info* → *Configurations* → set both **Debug** and **Release** to
+   **Secrets**.
+4. Select your team under *Signing & Capabilities* (needed only to run on a
+   real device; the Simulator works unsigned).
+5. **⌘R.**
+
+> Regenerating the project: `python3 tools/generate_xcodeproj.py` rebuilds
+> `MileLog.xcodeproj` from whatever is on disk. Run it after adding or removing
+> source files — it is deterministic, so an unchanged tree produces an
+> identical file and no spurious diff.
+
+Two things still have to be done in the **Supabase dashboard**, because they
+live there rather than in the app:
+
+- *Authentication → URL Configuration → Redirect URLs*: add
+  `milelog://auth/reset`. Without it the "Forgot password?" mail is sent but
+  its link cannot re-enter the app, so the reset can never complete.
+- *Storage*: create a private bucket named `receipts`.
 
 > **Never commit your real `SUPABASE_*` values.** Anyone with the publishable
 > key + a known email/password can read that user's data; the secret

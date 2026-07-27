@@ -14,3 +14,6 @@ Package.resolved
 # Local Info.plist overlays that may contain Supabase credentials.
 Info.local.plist
 *.xcconfig.local
+
+# Real Supabase credentials (see Secrets.xcconfig.example)
+Secrets.xcconfig
