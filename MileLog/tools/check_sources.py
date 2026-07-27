@@ -29,7 +29,7 @@ import sys
 import tarfile
 import urllib.request
 
-REF_SHA = "489cd5758ee6b4b1e4d0d78ee20ba0fd0d84c0f2"
+REF_SHA = "c404dd4c9f3560d6ca228dc0a662034f89ed31c1"
 TARBALL = "https://codeload.github.com/BobleeSlo/crewai/tar.gz/%s" % REF_SHA
 
 
