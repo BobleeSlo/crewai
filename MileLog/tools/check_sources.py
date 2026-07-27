@@ -69,7 +69,12 @@ def fetch_reference():
     if os.path.isdir(dest):
         shutil.rmtree(dest)
     with tarfile.open(fileobj=io.BytesIO(blob), mode="r:gz") as tar:
-        tar.extractall(dest)
+        try:
+            # Python 3.14 rejects unfiltered extraction; ask for the safe
+            # filter explicitly. Older versions have no such argument.
+            tar.extractall(dest, filter="data")
+        except TypeError:
+            tar.extractall(dest)
     for root, dirs, _ in os.walk(dest):
         if os.path.basename(root) == "MileLog" and "Views" in dirs:
             return root
