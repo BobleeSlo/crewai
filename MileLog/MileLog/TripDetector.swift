@@ -2,6 +2,7 @@ import Foundation
 import CoreLocation
 import AVFoundation
 import Combine
+import UIKit
 
 /// In-progress auto trip kept on disk so it survives the app being killed.
 ///
@@ -161,6 +162,11 @@ final class TripDetector: NSObject, ObservableObject {
     // GPS health diagnostics so a future "GPS interrupted" complaint
     // becomes obvious in the Detection log.
     private var lastLocationAt: Date = .distantPast
+    /// Fixes delivered since the last heartbeat. A healthy trip sees many;
+    /// one per heartbeat means iOS is waking the app periodically rather
+    /// than streaming, and the distance is being measured as straight lines
+    /// between minutes-apart points.
+    private var fixesSinceLastHeartbeat = 0
     private var lastAccuracy: Double = -1
 
     // Trip-end policy: PURE movement-based, no Bluetooth involvement at all.
@@ -518,7 +524,14 @@ final class TripDetector: NSObject, ObservableObject {
         )
         persistCandidate()
         manager.allowsBackgroundLocationUpdates = true
-        store.settings.energyMode.apply(to: manager)
+        // Auto-pause off for the duration of the trip, whatever the energy
+        // mode says: a paused manager suspends the app, which stops the
+        // audit timer and leaves the trip open until the next launch.
+        store.settings.energyMode.apply(to: manager, duringActiveTrip: true)
+        // The blue status-bar pill. Also the only way to see, at a glance
+        // while driving, whether iOS is actually running background
+        // location for us — if it is missing, it is not.
+        manager.showsBackgroundLocationIndicator = true
         manager.startUpdatingLocation()
         if motion.isAvailable {
             motion.start()
@@ -748,12 +761,23 @@ final class TripDetector: NSObject, ObservableObject {
         pendingSwitchFirstSeenAt = nil
 
         manager.allowsBackgroundLocationUpdates = true
-        store.settings.energyMode.apply(to: manager)
+        // Auto-pause off for the duration of the trip, whatever the energy
+        // mode says: a paused manager suspends the app, which stops the
+        // audit timer and leaves the trip open until the next launch.
+        store.settings.energyMode.apply(to: manager, duringActiveTrip: true)
+        // The blue status-bar pill. Also the only way to see, at a glance
+        // while driving, whether iOS is actually running background
+        // location for us — if it is missing, it is not.
+        manager.showsBackgroundLocationIndicator = true
         manager.startUpdatingLocation()
         startAuditTimer()
 
         let bt = device.map { "BT \($0.name)" } ?? "no BT"
         log.log("Trip started: \(vehicle.name) [\(bt)] · \(store.settings.energyMode.label)", level: .info)
+        if ProcessInfo.processInfo.isLowPowerModeEnabled {
+            log.log("Low Power Mode is ON. iOS throttles background location hard in this mode — expect sparse fixes, under-measured distance, and trips that only close when the app is next opened.",
+                    level: .warning)
+        }
     }
 
     // MARK: - Audit (pure elapsed-time-since-movement trip end)
@@ -868,7 +892,8 @@ final class TripDetector: NSObject, ObservableObject {
         if lastLocationAt == .distantPast {
             gpsHealth = "GPS none yet"
         } else {
-            gpsHealth = String(format: "GPS %ds ago · acc %.0f m", secsSinceGPS, max(0, lastAccuracy))
+            gpsHealth = String(format: "GPS %ds ago · acc %.0f m · %d fixes since last beat",
+                               secsSinceGPS, max(0, lastAccuracy), fixesSinceLastHeartbeat)
         }
         let hasPairing = trip.audioDeviceUID != nil || (trip.audioDeviceName?.isEmpty == false)
         let btLabel = hasPairing
@@ -880,14 +905,39 @@ final class TripDetector: NSObject, ObservableObject {
         } else {
             motionLabel = "no signal yet"
         }
-        log.log(String(format: "AUDIT heartbeat: %.1f km · v %.0f km/h · %.0f min since movement (ends at %.0f) · BT %@ · motion %@ · %@",
+        // Why the background state is on every heartbeat: field logs showed
+        // a 60-second audit timer firing every 300 seconds with each fix
+        // ~290s stale — the signature of an app iOS is not letting run,
+        // even though the code arms background updates correctly. Nothing
+        // in the old heartbeat could distinguish "iOS suspended us",
+        // "Low Power Mode throttled us" and "auto-pause fired", so this
+        // records all three. A healthy background heartbeat reads
+        // `app bg · bgUpdates on · autoPause off · lowPower off` with GPS a
+        // few seconds old; anything else names the culprit directly.
+        let appState: String
+        switch UIApplication.shared.applicationState {
+        case .active:     appState = "fg"
+        case .inactive:   appState = "inactive"
+        case .background: appState = "bg"
+        @unknown default: appState = "?"
+        }
+        let background = String(
+            format: "app %@ · bgUpdates %@ · autoPause %@ · lowPower %@",
+            appState,
+            manager.allowsBackgroundLocationUpdates ? "on" : "OFF",
+            manager.pausesLocationUpdatesAutomatically ? "ON" : "off",
+            ProcessInfo.processInfo.isLowPowerModeEnabled ? "ON" : "off")
+
+        log.log(String(format: "AUDIT heartbeat: %.1f km · v %.0f km/h · %.0f min since movement (ends at %.0f) · BT %@ · motion %@ · %@ · %@",
                        trip.distanceKm,
                        trip.lastSpeedKmh,
                        stationaryMin,
                        timeout,
                        btLabel,
                        motionLabel,
-                       gpsHealth))
+                       gpsHealth,
+                       background))
+        fixesSinceLastHeartbeat = 0
     }
 
     /// Resume the previous trip instead of starting a fresh one when the
@@ -1052,7 +1102,14 @@ final class TripDetector: NSObject, ObservableObject {
         pendingSwitchFirstSeenAt = nil
 
         manager.allowsBackgroundLocationUpdates = true
-        store.settings.energyMode.apply(to: manager)
+        // Auto-pause off for the duration of the trip, whatever the energy
+        // mode says: a paused manager suspends the app, which stops the
+        // audit timer and leaves the trip open until the next launch.
+        store.settings.energyMode.apply(to: manager, duringActiveTrip: true)
+        // The blue status-bar pill. Also the only way to see, at a glance
+        // while driving, whether iOS is actually running background
+        // location for us — if it is missing, it is not.
+        manager.showsBackgroundLocationIndicator = true
         manager.startUpdatingLocation()
         startAuditTimer()
     }
@@ -1226,6 +1283,7 @@ final class TripDetector: NSObject, ObservableObject {
 
         guard var trip = activeTrip else { return }
         lastLocationAt = Date()
+        fixesSinceLastHeartbeat += 1
         lastAccuracy = location.horizontalAccuracy
         let speedKmh = max(0, location.speed) * 3.6
         trip.lastSpeedKmh = speedKmh
@@ -1670,7 +1728,14 @@ final class TripDetector: NSObject, ObservableObject {
         if motion.isAvailable { motion.start() }
 
         manager.allowsBackgroundLocationUpdates = true
-        store.settings.energyMode.apply(to: manager)
+        // Auto-pause off for the duration of the trip, whatever the energy
+        // mode says: a paused manager suspends the app, which stops the
+        // audit timer and leaves the trip open until the next launch.
+        store.settings.energyMode.apply(to: manager, duringActiveTrip: true)
+        // The blue status-bar pill. Also the only way to see, at a glance
+        // while driving, whether iOS is actually running background
+        // location for us — if it is missing, it is not.
+        manager.showsBackgroundLocationIndicator = true
         manager.startUpdatingLocation()
         startAuditTimer()
 

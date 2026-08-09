@@ -53,9 +53,17 @@ extension EnergyMode {
 
     /// Apply the mode to a manager — call this whenever updates are
     /// about to start, and after the user changes the mode in Settings.
-    func apply(to manager: CLLocationManager) {
+    ///
+    /// `duringActiveTrip` forces auto-pause off no matter what the mode
+    /// says. When iOS pauses updates it decides on its own when to resume,
+    /// and while paused the app is suspended: the audit timer stops, so the
+    /// stationary timeout that ends the trip never runs and the trip hangs
+    /// open until the app is next launched. That is a trip-losing failure,
+    /// not a battery trade-off, so Low Power mode does not get to make it.
+    func apply(to manager: CLLocationManager, duringActiveTrip: Bool = false) {
         manager.desiredAccuracy = desiredAccuracy
         manager.distanceFilter = distanceFilter
-        manager.pausesLocationUpdatesAutomatically = pausesLocationUpdatesAutomatically
+        manager.pausesLocationUpdatesAutomatically =
+            duringActiveTrip ? false : pausesLocationUpdatesAutomatically
     }
 }
