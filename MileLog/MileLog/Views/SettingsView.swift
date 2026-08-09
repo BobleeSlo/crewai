@@ -394,9 +394,14 @@ struct SettingsView: View {
 
                 Section {
                     LabeledContent("App", value: "MileLog")
+                    LabeledContent("Version", value: AppVersion.display)
+                    LabeledContent("Backend", value: AppVersion.backendHost)
                     LabeledContent("Sync", value: "Private cloud backup")
                 } header: {
                     SectionHeaderLabel(title: "About", systemImage: "info.circle")
+                } footer: {
+                    Text("Quote the version when reporting a problem — it identifies exactly which build produced a Detection Log.")
+                        .font(.caption)
                 }
             }
             .navigationTitle("Settings")
@@ -707,5 +712,33 @@ struct SettingsView: View {
 
         store.saveSettings()
         geocodeStatus = status.joined(separator: " · ")
+    }
+}
+
+/// Build identity, read from the bundle at runtime.
+///
+/// Both values come from Info.plist. Note that with
+/// `GENERATE_INFOPLIST_FILE = NO` the Version and Build fields on Xcode's
+/// General tab edit `MARKETING_VERSION` / `CURRENT_PROJECT_VERSION`, which
+/// nothing in this target reads — typing a new number there has no effect.
+/// `tools/bump_version.py` writes the plist directly, which is what ships.
+enum AppVersion {
+    static var short: String { string("CFBundleShortVersionString") }
+    static var build: String { string("CFBundleVersion") }
+
+    /// e.g. "1.1 (2)" — the form to quote in a bug report.
+    static var display: String { "\(short) (\(build))" }
+
+    /// Host only, never the key: this row is on a screen users are asked to
+    /// screenshot when something misbehaves.
+    static var backendHost: String {
+        guard let raw = Bundle.main.object(forInfoDictionaryKey: "SUPABASE_URL") as? String,
+              let host = URL(string: raw)?.host, !host.isEmpty
+        else { return "not configured" }
+        return host
+    }
+
+    private static func string(_ key: String) -> String {
+        (Bundle.main.object(forInfoDictionaryKey: key) as? String) ?? "—"
     }
 }
