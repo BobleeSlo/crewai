@@ -11,6 +11,14 @@ identifies exactly which code produced a given Detection Log, which is the
 whole point: "no changes, still broken" and "I am running last week's build"
 look identical from the outside otherwise.
 
+It also writes MARKETING_VERSION and CURRENT_PROJECT_VERSION into the
+Xcode project when one is found. Those two are what a target with
+GENERATE_INFOPLIST_FILE = YES actually ships — Xcode injects them and
+overwrites whatever the plist file says, so bumping only the plist leaves
+the app reporting Xcode's defaults, 1.0 (1). Writing both means the
+version is right whichever way the target is configured, and the two
+cannot drift apart.
+
 Usage:
     python3 tools/bump_version.py                  # build +1
     python3 tools/bump_version.py --version 1.2    # set version, build +1
@@ -26,6 +34,57 @@ import shutil
 import sys
 
 DEFAULT_PLIST = "MileLog/Info.plist"
+DEFAULT_PROJECT = "MileLog.xcodeproj/project.pbxproj"
+
+
+def sync_project(path, version, build):
+    """Set MARKETING_VERSION / CURRENT_PROJECT_VERSION on every build config
+    that carries a PRODUCT_BUNDLE_IDENTIFIER (i.e. the app target's, not the
+    project-level ones). Returns a short report, or None if there is no
+    project file to touch."""
+    import re
+    if not os.path.isfile(path):
+        return None
+    with open(path, "r", encoding="utf-8") as f:
+        text = f.read()
+
+    wanted = {"MARKETING_VERSION": version, "CURRENT_PROJECT_VERSION": str(build)}
+    changed, added = 0, 0
+    lines = text.splitlines(True)
+    out, i = [], 0
+    while i < len(lines):
+        line = lines[i]
+        out.append(line)
+        if "buildSettings = {" not in line:
+            i += 1
+            continue
+        # Collect this buildSettings block.
+        block, j = [], i + 1
+        while j < len(lines) and lines[j].strip() != "};":
+            block.append(lines[j])
+            j += 1
+        body = "".join(block)
+        if "PRODUCT_BUNDLE_IDENTIFIER" not in body:
+            out.extend(block)
+            i = j
+            continue
+        indent = re.match(r"\s*", block[0]).group(0) if block else "\t\t\t\t"
+        for key, value in wanted.items():
+            pattern = re.compile(r"^(\s*)%s\s*=\s*[^;]*;\s*$" % key, re.MULTILINE)
+            if pattern.search(body):
+                body, n = pattern.subn(r"\g<1>%s = %s;" % (key, value), body)
+                changed += n
+            else:
+                body = indent + "%s = %s;\n" % (key, value) + body
+                added += 1
+        out.append(body)
+        i = j
+    if not changed and not added:
+        return None
+    shutil.copy2(path, path + ".bak")
+    with open(path, "w", encoding="utf-8") as f:
+        f.write("".join(out))
+    return "project: %d setting(s) updated, %d added" % (changed, added)
 
 
 def main(argv):
@@ -85,6 +144,14 @@ def main(argv):
 
     print("%s (%s)  ->  %s (%d)"
           % (old_version, old_build_raw, version, next_build))
+    report = sync_project(DEFAULT_PROJECT, version, next_build)
+    if report:
+        print(report)
+    elif os.path.isfile(DEFAULT_PROJECT):
+        print("project: no target build config found to update")
+    else:
+        print("project: %s not found, plist only" % DEFAULT_PROJECT)
+
     print("\nSettings > About in the app will show: %s (%d)" % (version, next_build))
     print("Backup: %s.bak" % plist_path)
     print("\nNow Clean Build Folder and Run, so the number matches what installs.")
