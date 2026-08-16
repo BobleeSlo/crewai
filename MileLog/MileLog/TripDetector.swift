@@ -1282,6 +1282,33 @@ final class TripDetector: NSObject, ObservableObject {
         if checkVehicleSwitch() { return }
 
         guard var trip = activeTrip else { return }
+
+        // Close an overdue trip before crediting this fix to it.
+        //
+        // A location can arrive after an arbitrarily long suspension — iOS
+        // wakes the app on a significant change long after the car parked.
+        // The 60s audit timer cannot fire while suspended, so without this
+        // the stale trip just keeps absorbing whatever arrives: field logs
+        // show a trip whose last real movement was 13:46 at 16.8 km being
+        // closed at 20:36 with 19.6 km, the extra 2.8 km being a separate
+        // evening drive merged into the afternoon one. That is the "trip
+        // only ends when the next one starts" behaviour, and it corrupts
+        // both trips at once.
+        //
+        // Re-running the audit rather than ending inline keeps every
+        // existing rule in one place — the CoreMotion dead-zone override so
+        // a tunnel does not split a drive, relaunch-recovery flagging, and
+        // closing at `lastMovementAt` rather than now. None of it depends
+        // on a timer having fired, so it works however long the app was
+        // suspended. If the trip survives the audit (dead zone, or the gap
+        // is under the timeout) we carry on with the refreshed copy.
+        let gapMinutes = Date().timeIntervalSince(trip.lastMovementAt) / 60
+        if gapMinutes >= Double(store.settings.stationaryTimeoutMinutes) {
+            auditActiveTrip()
+            guard let survivingTrip = activeTrip else { return }
+            trip = survivingTrip
+        }
+
         lastLocationAt = Date()
         fixesSinceLastHeartbeat += 1
         lastAccuracy = location.horizontalAccuracy
