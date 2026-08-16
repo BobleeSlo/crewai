@@ -1,0 +1,19 @@
+# Xcode / Swift
+build/
+DerivedData/
+*.xcuserstate
+*.xcworkspace/xcuserdata/
+*.xcodeproj/xcuserdata/
+*.xcodeproj/project.xcworkspace/xcuserdata/
+.swiftpm/
+Package.resolved
+
+# macOS
+.DS_Store
+
+# Local Info.plist overlays that may contain Supabase credentials.
+Info.local.plist
+*.xcconfig.local
+
+# Real Supabase credentials (see Secrets.xcconfig.example)
+Secrets.xcconfig

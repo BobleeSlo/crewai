@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  MileLog app icon — speedometer-on-road concept.
+  Export as 1024×1024 PNG (no transparency, no rounded corners — iOS handles
+  the corner radius) and feed into appicon.co or Xcode's asset catalog
+  "App Icon" generator to produce every required size.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%"   stop-color="#1E88E5"/>
+      <stop offset="100%" stop-color="#0D47A1"/>
+    </linearGradient>
+    <linearGradient id="dialFill" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%"   stop-color="#FFFFFF" stop-opacity="0.15"/>
+      <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0.02"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Background (full bleed; iOS will mask the corners) -->
+  <rect width="1024" height="1024" fill="url(#bg)"/>
+
+  <!-- Soft inner dial fill -->
+  <circle cx="512" cy="512" r="380" fill="url(#dialFill)"/>
+
+  <!-- Outer speedometer arc (270° from 7 o'clock to 5 o'clock) -->
+  <path d="M 240 720 A 380 380 0 1 1 784 720"
+        fill="none"
+        stroke="#FFFFFF"
+        stroke-width="48"
+        stroke-linecap="round"
+        opacity="0.5"/>
+
+  <!-- Filled "current speed" arc, roughly 60% of the dial -->
+  <path d="M 240 720 A 380 380 0 0 1 720 220"
+        fill="none"
+        stroke="#FFFFFF"
+        stroke-width="48"
+        stroke-linecap="round"/>
+
+  <!-- Tick marks every 30° around the dial -->
+  <g stroke="#FFFFFF" stroke-width="10" stroke-linecap="round" opacity="0.9">
+    <line x1="512" y1="160" x2="512" y2="200"/>
+    <line x1="512" y1="824" x2="512" y2="864"/>
+    <line x1="160" y1="512" x2="200" y2="512"/>
+    <line x1="824" y1="512" x2="864" y2="512"/>
+    <!-- diagonals -->
+    <line x1="265" y1="265" x2="295" y2="295"/>
+    <line x1="729" y1="295" x2="759" y2="265"/>
+    <line x1="265" y1="759" x2="295" y2="729"/>
+    <line x1="729" y1="729" x2="759" y2="759"/>
+  </g>
+
+  <!-- Needle pointing to ~2 o'clock -->
+  <g transform="rotate(60 512 512)">
+    <rect x="500" y="220" width="24" height="320" rx="12" fill="#FFFFFF"/>
+  </g>
+  <circle cx="512" cy="512" r="56" fill="#FFFFFF"/>
+  <circle cx="512" cy="512" r="20" fill="#0D47A1"/>
+
+  <!-- "km" label centered below the hub -->
+  <text x="512" y="700"
+        text-anchor="middle"
+        font-family="-apple-system, SF Pro Display, Helvetica Neue, sans-serif"
+        font-weight="700"
+        font-size="120"
+        letter-spacing="-4"
+        fill="#FFFFFF">km</text>
+</svg>

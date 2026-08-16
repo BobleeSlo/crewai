@@ -1,0 +1,443 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 56;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		349EAA64FEFAB38660496537 /* AppLock.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D12E3EA2DEEC3CF5B9D06A7 /* AppLock.swift */; };
+		E69C7A6F53238988F9C9D5E9 /* AudioRoute.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E23AE07021E6BDD9DEBD900 /* AudioRoute.swift */; };
+		E37FA1806A573401899E72A4 /* BiometricAuth.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56CA6F31ACA445188C86F295 /* BiometricAuth.swift */; };
+		DFEEDE9DCC4028E932930E4A /* CustomerSuggester.swift in Sources */ = {isa = PBXBuildFile; fileRef = BDCF94056C81B65742E6C246 /* CustomerSuggester.swift */; };
+		34793287C02E2F38E93FC05D /* DetectionLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F49FE287B4EE51CE1E47875 /* DetectionLog.swift */; };
+		2FF0A6442D9FEF4BC493ABAD /* EnergyMode+CoreLocation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 246566FF126E7B95FCD79A52 /* EnergyMode+CoreLocation.swift */; };
+		8ED76D1858CFCAE48F29DF6E /* LocationManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56E072BF72A7A7AFCEF6AC77 /* LocationManager.swift */; };
+		893D08E57B4BE4B3ED354B9F /* MileLogApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1EFA2FD75430DBC18E83408 /* MileLogApp.swift */; };
+		F31A03773E8763A96B4E923F /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = 901CDEE6489A4EB609BA75D7 /* Models.swift */; };
+		A2A417E44512617D40E03468 /* MotionVerifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = F126403462B404B77BE30D63 /* MotionVerifier.swift */; };
+		C1B132B678C4C634733CE4DB /* NotificationManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C10EA9C18256D0CCE18E04D /* NotificationManager.swift */; };
+		06E65899937426C0D9E0F3DA /* PDFReporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2B8EFBF089D088032B59015 /* PDFReporter.swift */; };
+		77820ABFAAB035D4DBBBFD9D /* ReceiptScanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43463AF06C1A7DC7FF6AAC0B /* ReceiptScanner.swift */; };
+		4B48D0C5170BE703D883D60B /* Store.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3284A67FA33B2EA30074C3B /* Store.swift */; };
+		51CA031F4713C49FB6900565 /* SupabaseConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA8B2B5A93BA5214A000D986 /* SupabaseConfig.swift */; };
+		CB519F0CEDB7CDCBEAA8357E /* SupabaseDTO.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0E1F2BB29521A2F3EA73EEE4 /* SupabaseDTO.swift */; };
+		AA186B213FDAA996AAEBEF19 /* SupabaseService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E3B44CEECC5B1D38372305 /* SupabaseService.swift */; };
+		4B7905E29AFA6E0BEFED60F8 /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = DDAB49E1CB9F2A3C1B24B496 /* Theme.swift */; };
+		EB0A22B8DA1B7538864B4CDA /* TripClassifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = 509E8F4D350CAB2D58DCFC39 /* TripClassifier.swift */; };
+		C5037729FD081A6A557DB53D /* TripDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = 560974B38B146DFD09AF7BDA /* TripDetector.swift */; };
+		A47815F906D61770D92087BB /* AuthView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C6358EEA2526A849A676083 /* AuthView.swift */; };
+		EF01C4A0712C1F5FD35FB678 /* CameraImagePicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 75FE6121119995B9B7973B19 /* CameraImagePicker.swift */; };
+		B544678E597028DFCBC5AEFB /* ClassifyTripView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 26B1C3ABD6990039A48CB312 /* ClassifyTripView.swift */; };
+		369EB8D39E3AC23520E2D691 /* DetectionLogView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D677A9CEDC2F9BCFA03DBF95 /* DetectionLogView.swift */; };
+		5489CD90FB7A8B175B4E1AD0 /* LockView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66B7B3CA2A7912241A81E335 /* LockView.swift */; };
+		8ECE240A2C736B45E2DEB159 /* ReceiptsSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 54784855150DF922656D151F /* ReceiptsSection.swift */; };
+		DC1920168F46C8D16E6ECB2B /* RecordTripView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D59E2090ED2E531C397E08DF /* RecordTripView.swift */; };
+		039EBB61D43D06D62229C313 /* ReportSelectionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 22537AA70674A773F1318C7D /* ReportSelectionView.swift */; };
+		B02B1E7E7E24E3CA597C4C13 /* RootTabView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F3961C28B512B09E1F4150B /* RootTabView.swift */; };
+		BF4C7CC5A470EAF108AE377B /* SetNewPasswordView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BFF66E25AAF6B5A98B64C7F6 /* SetNewPasswordView.swift */; };
+		9E510FD9E5ACBD4BC80196B4 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 406AC1FB16763F083527FEFA /* SettingsView.swift */; };
+		5481A9985BBDB2896821DB7B /* TripDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1172AD117B689D283BF0F971 /* TripDetailView.swift */; };
+		18026BFC80E5FC0D4CCE6EF4 /* TripEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = D6A8CE6453B5CDC67E06F0EC /* TripEditor.swift */; };
+		4211C78E077F047F7979AB1F /* TripMapView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5AB395C8C097355BB01CD66 /* TripMapView.swift */; };
+		55139CD80A74750710141963 /* TripsListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB4C7F7D5FAFCEBB5DBB53BA /* TripsListView.swift */; };
+		782BBD66D212A0D0848DA539 /* UIComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 164E2F2D5DEB4FC3EF75D6EB /* UIComponents.swift */; };
+		BA92DC16B89C8AFCB3A256D1 /* VehiclesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7EC135EA81E1D5C549CE898 /* VehiclesView.swift */; };
+		1DC5A061C2BA87CC0BA85165 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 35AB8EA49CA1DDDC892AA20C /* Assets.xcassets */; };
+		B28C9D45F4122EAAD35F398A /* InfoPlist.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = 97FAB39A7F0AA5B0CD25AC9D /* InfoPlist.xcstrings */; };
+		C6EFDB216AD6B7FADB64433B /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = C22613B42D7A795DE1554EB1 /* Localizable.xcstrings */; };
+		2934905C8193DAA2548B9C54 /* Supabase in Frameworks */ = {isa = PBXBuildFile; productRef = 2AD2F9236383C99AE9CE9E9A /* Supabase */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		38A007151ABE87CC01A5B6E9 /* MileLog.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = MileLog.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		4D12E3EA2DEEC3CF5B9D06A7 /* AppLock.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppLock.swift; sourceTree = "<group>"; };
+		9E23AE07021E6BDD9DEBD900 /* AudioRoute.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioRoute.swift; sourceTree = "<group>"; };
+		56CA6F31ACA445188C86F295 /* BiometricAuth.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BiometricAuth.swift; sourceTree = "<group>"; };
+		BDCF94056C81B65742E6C246 /* CustomerSuggester.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CustomerSuggester.swift; sourceTree = "<group>"; };
+		2F49FE287B4EE51CE1E47875 /* DetectionLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DetectionLog.swift; sourceTree = "<group>"; };
+		246566FF126E7B95FCD79A52 /* EnergyMode+CoreLocation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EnergyMode+CoreLocation.swift; sourceTree = "<group>"; };
+		56E072BF72A7A7AFCEF6AC77 /* LocationManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocationManager.swift; sourceTree = "<group>"; };
+		C1EFA2FD75430DBC18E83408 /* MileLogApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MileLogApp.swift; sourceTree = "<group>"; };
+		901CDEE6489A4EB609BA75D7 /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
+		F126403462B404B77BE30D63 /* MotionVerifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MotionVerifier.swift; sourceTree = "<group>"; };
+		7C10EA9C18256D0CCE18E04D /* NotificationManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationManager.swift; sourceTree = "<group>"; };
+		E2B8EFBF089D088032B59015 /* PDFReporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PDFReporter.swift; sourceTree = "<group>"; };
+		43463AF06C1A7DC7FF6AAC0B /* ReceiptScanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReceiptScanner.swift; sourceTree = "<group>"; };
+		C3284A67FA33B2EA30074C3B /* Store.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Store.swift; sourceTree = "<group>"; };
+		FA8B2B5A93BA5214A000D986 /* SupabaseConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SupabaseConfig.swift; sourceTree = "<group>"; };
+		0E1F2BB29521A2F3EA73EEE4 /* SupabaseDTO.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SupabaseDTO.swift; sourceTree = "<group>"; };
+		A6E3B44CEECC5B1D38372305 /* SupabaseService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SupabaseService.swift; sourceTree = "<group>"; };
+		DDAB49E1CB9F2A3C1B24B496 /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
+		509E8F4D350CAB2D58DCFC39 /* TripClassifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TripClassifier.swift; sourceTree = "<group>"; };
+		560974B38B146DFD09AF7BDA /* TripDetector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TripDetector.swift; sourceTree = "<group>"; };
+		2C6358EEA2526A849A676083 /* AuthView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthView.swift; sourceTree = "<group>"; };
+		75FE6121119995B9B7973B19 /* CameraImagePicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraImagePicker.swift; sourceTree = "<group>"; };
+		26B1C3ABD6990039A48CB312 /* ClassifyTripView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClassifyTripView.swift; sourceTree = "<group>"; };
+		D677A9CEDC2F9BCFA03DBF95 /* DetectionLogView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DetectionLogView.swift; sourceTree = "<group>"; };
+		66B7B3CA2A7912241A81E335 /* LockView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LockView.swift; sourceTree = "<group>"; };
+		54784855150DF922656D151F /* ReceiptsSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReceiptsSection.swift; sourceTree = "<group>"; };
+		D59E2090ED2E531C397E08DF /* RecordTripView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordTripView.swift; sourceTree = "<group>"; };
+		22537AA70674A773F1318C7D /* ReportSelectionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReportSelectionView.swift; sourceTree = "<group>"; };
+		0F3961C28B512B09E1F4150B /* RootTabView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootTabView.swift; sourceTree = "<group>"; };
+		BFF66E25AAF6B5A98B64C7F6 /* SetNewPasswordView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SetNewPasswordView.swift; sourceTree = "<group>"; };
+		406AC1FB16763F083527FEFA /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		1172AD117B689D283BF0F971 /* TripDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TripDetailView.swift; sourceTree = "<group>"; };
+		D6A8CE6453B5CDC67E06F0EC /* TripEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TripEditor.swift; sourceTree = "<group>"; };
+		A5AB395C8C097355BB01CD66 /* TripMapView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TripMapView.swift; sourceTree = "<group>"; };
+		CB4C7F7D5FAFCEBB5DBB53BA /* TripsListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TripsListView.swift; sourceTree = "<group>"; };
+		164E2F2D5DEB4FC3EF75D6EB /* UIComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UIComponents.swift; sourceTree = "<group>"; };
+		A7EC135EA81E1D5C549CE898 /* VehiclesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VehiclesView.swift; sourceTree = "<group>"; };
+		35AB8EA49CA1DDDC892AA20C /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		97FAB39A7F0AA5B0CD25AC9D /* InfoPlist.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = InfoPlist.xcstrings; sourceTree = "<group>"; };
+		C22613B42D7A795DE1554EB1 /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
+		B37EC376055EA5EA9A3CE280 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		FE7006A0F8A8753331FC7CCD /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				2934905C8193DAA2548B9C54 /* Supabase in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		AB48CFA305015276AB5620D4 = {
+			isa = PBXGroup;
+			children = (
+				662D1FE02BC3684F771FC430 /* MileLog */,
+				E98EF9E8E463C4AD21FCC778 /* Frameworks */,
+				692092DE1C1C8624E142B71D /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		662D1FE02BC3684F771FC430 /* MileLog */ = {
+			isa = PBXGroup;
+			children = (
+				4D12E3EA2DEEC3CF5B9D06A7 /* AppLock.swift */,
+				9E23AE07021E6BDD9DEBD900 /* AudioRoute.swift */,
+				56CA6F31ACA445188C86F295 /* BiometricAuth.swift */,
+				BDCF94056C81B65742E6C246 /* CustomerSuggester.swift */,
+				2F49FE287B4EE51CE1E47875 /* DetectionLog.swift */,
+				246566FF126E7B95FCD79A52 /* EnergyMode+CoreLocation.swift */,
+				56E072BF72A7A7AFCEF6AC77 /* LocationManager.swift */,
+				C1EFA2FD75430DBC18E83408 /* MileLogApp.swift */,
+				901CDEE6489A4EB609BA75D7 /* Models.swift */,
+				F126403462B404B77BE30D63 /* MotionVerifier.swift */,
+				7C10EA9C18256D0CCE18E04D /* NotificationManager.swift */,
+				E2B8EFBF089D088032B59015 /* PDFReporter.swift */,
+				43463AF06C1A7DC7FF6AAC0B /* ReceiptScanner.swift */,
+				C3284A67FA33B2EA30074C3B /* Store.swift */,
+				FA8B2B5A93BA5214A000D986 /* SupabaseConfig.swift */,
+				0E1F2BB29521A2F3EA73EEE4 /* SupabaseDTO.swift */,
+				A6E3B44CEECC5B1D38372305 /* SupabaseService.swift */,
+				DDAB49E1CB9F2A3C1B24B496 /* Theme.swift */,
+				509E8F4D350CAB2D58DCFC39 /* TripClassifier.swift */,
+				560974B38B146DFD09AF7BDA /* TripDetector.swift */,
+				8F8D6B6B27F838896A5B1124 /* Views */,
+				35AB8EA49CA1DDDC892AA20C /* Assets.xcassets */,
+				97FAB39A7F0AA5B0CD25AC9D /* InfoPlist.xcstrings */,
+				C22613B42D7A795DE1554EB1 /* Localizable.xcstrings */,
+				B37EC376055EA5EA9A3CE280 /* Info.plist */,
+			);
+			path = MileLog;
+			sourceTree = "<group>";
+		};
+		8F8D6B6B27F838896A5B1124 /* Views */ = {
+			isa = PBXGroup;
+			children = (
+				2C6358EEA2526A849A676083 /* AuthView.swift */,
+				75FE6121119995B9B7973B19 /* CameraImagePicker.swift */,
+				26B1C3ABD6990039A48CB312 /* ClassifyTripView.swift */,
+				D677A9CEDC2F9BCFA03DBF95 /* DetectionLogView.swift */,
+				66B7B3CA2A7912241A81E335 /* LockView.swift */,
+				54784855150DF922656D151F /* ReceiptsSection.swift */,
+				D59E2090ED2E531C397E08DF /* RecordTripView.swift */,
+				22537AA70674A773F1318C7D /* ReportSelectionView.swift */,
+				0F3961C28B512B09E1F4150B /* RootTabView.swift */,
+				BFF66E25AAF6B5A98B64C7F6 /* SetNewPasswordView.swift */,
+				406AC1FB16763F083527FEFA /* SettingsView.swift */,
+				1172AD117B689D283BF0F971 /* TripDetailView.swift */,
+				D6A8CE6453B5CDC67E06F0EC /* TripEditor.swift */,
+				A5AB395C8C097355BB01CD66 /* TripMapView.swift */,
+				CB4C7F7D5FAFCEBB5DBB53BA /* TripsListView.swift */,
+				164E2F2D5DEB4FC3EF75D6EB /* UIComponents.swift */,
+				A7EC135EA81E1D5C549CE898 /* VehiclesView.swift */,
+			);
+			path = Views;
+			sourceTree = "<group>";
+		};
+		E98EF9E8E463C4AD21FCC778 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
+		692092DE1C1C8624E142B71D /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				38A007151ABE87CC01A5B6E9 /* MileLog.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		0E8A3AD980EC179856012B7E /* MileLog */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 8198663431F2A521B811DB48;
+			buildPhases = (
+				9E199EDCB17B4C967EDEA5CE /* Sources */,
+				FE7006A0F8A8753331FC7CCD /* Frameworks */,
+				AB2660E5E1235C14F8623B10 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = MileLog;
+			packageProductDependencies = (
+				2AD2F9236383C99AE9CE9E9A /* Supabase */,
+			);
+			productName = MileLog;
+			productReference = 38A007151ABE87CC01A5B6E9 /* MileLog.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		98F54143AB4E86B28C3AFEE0 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 1520;
+				LastUpgradeCheck = 1520;
+				TargetAttributes = {
+					0E8A3AD980EC179856012B7E = {
+						CreatedOnToolsVersion = 15.2;
+					};
+				};
+			};
+			buildConfigurationList = D6CC217727934A074E68F345;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+				sl,
+			);
+			mainGroup = AB48CFA305015276AB5620D4;
+			packageReferences = (
+				2575B3061C2F61F5F712109B /* XCRemoteSwiftPackageReference "supabase-swift" */,
+			);
+			productRefGroup = 692092DE1C1C8624E142B71D /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				0E8A3AD980EC179856012B7E /* MileLog */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		AB2660E5E1235C14F8623B10 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				1DC5A061C2BA87CC0BA85165 /* Assets.xcassets in Resources */,
+				B28C9D45F4122EAAD35F398A /* InfoPlist.xcstrings in Resources */,
+				C6EFDB216AD6B7FADB64433B /* Localizable.xcstrings in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		9E199EDCB17B4C967EDEA5CE /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				349EAA64FEFAB38660496537 /* AppLock.swift in Sources */,
+				E69C7A6F53238988F9C9D5E9 /* AudioRoute.swift in Sources */,
+				E37FA1806A573401899E72A4 /* BiometricAuth.swift in Sources */,
+				DFEEDE9DCC4028E932930E4A /* CustomerSuggester.swift in Sources */,
+				34793287C02E2F38E93FC05D /* DetectionLog.swift in Sources */,
+				2FF0A6442D9FEF4BC493ABAD /* EnergyMode+CoreLocation.swift in Sources */,
+				8ED76D1858CFCAE48F29DF6E /* LocationManager.swift in Sources */,
+				893D08E57B4BE4B3ED354B9F /* MileLogApp.swift in Sources */,
+				F31A03773E8763A96B4E923F /* Models.swift in Sources */,
+				A2A417E44512617D40E03468 /* MotionVerifier.swift in Sources */,
+				C1B132B678C4C634733CE4DB /* NotificationManager.swift in Sources */,
+				06E65899937426C0D9E0F3DA /* PDFReporter.swift in Sources */,
+				77820ABFAAB035D4DBBBFD9D /* ReceiptScanner.swift in Sources */,
+				4B48D0C5170BE703D883D60B /* Store.swift in Sources */,
+				51CA031F4713C49FB6900565 /* SupabaseConfig.swift in Sources */,
+				CB519F0CEDB7CDCBEAA8357E /* SupabaseDTO.swift in Sources */,
+				AA186B213FDAA996AAEBEF19 /* SupabaseService.swift in Sources */,
+				4B7905E29AFA6E0BEFED60F8 /* Theme.swift in Sources */,
+				EB0A22B8DA1B7538864B4CDA /* TripClassifier.swift in Sources */,
+				C5037729FD081A6A557DB53D /* TripDetector.swift in Sources */,
+				A47815F906D61770D92087BB /* AuthView.swift in Sources */,
+				EF01C4A0712C1F5FD35FB678 /* CameraImagePicker.swift in Sources */,
+				B544678E597028DFCBC5AEFB /* ClassifyTripView.swift in Sources */,
+				369EB8D39E3AC23520E2D691 /* DetectionLogView.swift in Sources */,
+				5489CD90FB7A8B175B4E1AD0 /* LockView.swift in Sources */,
+				8ECE240A2C736B45E2DEB159 /* ReceiptsSection.swift in Sources */,
+				DC1920168F46C8D16E6ECB2B /* RecordTripView.swift in Sources */,
+				039EBB61D43D06D62229C313 /* ReportSelectionView.swift in Sources */,
+				B02B1E7E7E24E3CA597C4C13 /* RootTabView.swift in Sources */,
+				BF4C7CC5A470EAF108AE377B /* SetNewPasswordView.swift in Sources */,
+				9E510FD9E5ACBD4BC80196B4 /* SettingsView.swift in Sources */,
+				5481A9985BBDB2896821DB7B /* TripDetailView.swift in Sources */,
+				18026BFC80E5FC0D4CCE6EF4 /* TripEditor.swift in Sources */,
+				4211C78E077F047F7979AB1F /* TripMapView.swift in Sources */,
+				55139CD80A74750710141963 /* TripsListView.swift in Sources */,
+				782BBD66D212A0D0848DA539 /* UIComponents.swift in Sources */,
+				BA92DC16B89C8AFCB3A256D1 /* VehiclesView.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		E8A664B426DCB939B812EAF0 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				COPY_PHASE_STRIP = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MTL_FAST_MATH = YES;
+				SDKROOT = iphoneos;
+				SWIFT_STRICT_CONCURRENCY = minimal;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_TESTABILITY = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = ("DEBUG=1", "$(inherited)",);
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				ONLY_ACTIVE_ARCH = YES;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		EE021C88C2F80797F2C6EAC5 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				COPY_PHASE_STRIP = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MTL_FAST_MATH = YES;
+				SDKROOT = iphoneos;
+				SWIFT_STRICT_CONCURRENCY = minimal;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		1E0D549F0915174FF8BD83EB /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 7;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = MileLog/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/Frameworks",);
+				MARKETING_VERSION = 1.1;
+				PRODUCT_BUNDLE_IDENTIFIER = com.blisk.milelog;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		9DDA0FC41D82F4AB4C32F490 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 7;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = MileLog/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/Frameworks",);
+				MARKETING_VERSION = 1.1;
+				PRODUCT_BUNDLE_IDENTIFIER = com.blisk.milelog;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		D6CC217727934A074E68F345 /* Build configuration list for PBXProject "MileLog" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				E8A664B426DCB939B812EAF0 /* Debug */,
+				EE021C88C2F80797F2C6EAC5 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		8198663431F2A521B811DB48 /* Build configuration list for PBXNativeTarget "MileLog" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				1E0D549F0915174FF8BD83EB /* Debug */,
+				9DDA0FC41D82F4AB4C32F490 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		2575B3061C2F61F5F712109B /* XCRemoteSwiftPackageReference "supabase-swift" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/supabase/supabase-swift";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.0.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		2AD2F9236383C99AE9CE9E9A /* Supabase */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 2575B3061C2F61F5F712109B /* XCRemoteSwiftPackageReference "supabase-swift" */;
+			productName = Supabase;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = 98F54143AB4E86B28C3AFEE0 /* Project object */;
+}
