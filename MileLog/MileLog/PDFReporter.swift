@@ -296,7 +296,10 @@ enum PDFReporter {
         // failure previously still returned a "successful" Result (round-2
         // UX review finding).
         guard (try? data.write(to: url)) != nil else { return nil }
-        return Result(url: url, tripCount: monthly.count, headlineKm: totalKm)
+        // totalKm is whole kilometres here (summed from the rounded per-day
+        // values so the printed column reconciles); Result reports km as a
+        // Double for the own-car report, which does carry decimals.
+        return Result(url: url, tripCount: monthly.count, headlineKm: Double(totalKm))
     }
 
     // MARK: - Header / footer drawing ---------------------------------------
@@ -630,7 +633,7 @@ enum PDFReporter {
             .foregroundColor: UIColor.black
         ]
 
-        String(format: "SKUPAJ PREVOŽENIH KILOMETROV : %d", totalKm)
+        String(format: "SKUPAJ PREVOŽENIH KILOMETROV : %ld", totalKm)
             .draw(at: CGPoint(x: margin, y: y), withAttributes: totalAttrs)
         "Stanje km števca: _______________".draw(at: CGPoint(x: margin, y: y + 20), withAttributes: labelAttrs)
         "Razlika v km: _______________".draw(at: CGPoint(x: margin, y: y + 36), withAttributes: labelAttrs)
