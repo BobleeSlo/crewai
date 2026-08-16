@@ -16,7 +16,13 @@ import UIKit
 ///    the physical odometer reading.
 enum PDFReporter {
 
+    /// Portrait A4. The potni nalog stays portrait because the reference
+    /// workbook it has to match is printed that way.
     private static let pageSize = CGSize(width: 595, height: 842)      // A4 @ 72dpi
+    /// Landscape A4 for the own-car report: eight columns including two
+    /// full street addresses do not fit 523pt of portrait width without
+    /// truncating the destination, which is the row's whole point.
+    private static let landscapeSize = CGSize(width: 842, height: 595)
     private static let margin: CGFloat = 36
     private static let rowHeight: CGFloat = 22
     private static let headerHeight: CGFloat = 24
@@ -89,8 +95,9 @@ enum PDFReporter {
     // MARK: - Monthly own-car report ----------------------------------------
 
     // Date · Vehicle · Type · Customer / Purpose · From · To · km · €
-    // Widths sum to 523 — exactly the A4 text width at 36pt margins.
-    private static let ownCarColumnWidths: [CGFloat] = [58, 52, 48, 80, 110, 110, 32, 33]
+    // Widths sum to 770 — the landscape A4 text width at 36pt margins.
+    // From and To get 170pt each so a real street address fits whole.
+    private static let ownCarColumnWidths: [CGFloat] = [62, 70, 55, 130, 170, 170, 50, 63]
     private static var ownCarColumnTitles: [String] {
         [
             String(localized: "Date"),
@@ -127,29 +134,32 @@ enum PDFReporter {
 
         let monthLabel = monthName(year: year, month: month)
 
-        let renderer = UIGraphicsPDFRenderer(bounds: CGRect(origin: .zero, size: pageSize))
+        let renderer = UIGraphicsPDFRenderer(bounds: CGRect(origin: .zero, size: landscapeSize))
         let data = renderer.pdfData { ctx in
             var rowIndex = 0
             var page = 1
             ctx.beginPage()
-            drawPageFooter(page: page, month: monthLabel)
+            drawPageFooter(page: page, month: monthLabel, size: landscapeSize)
             drawMonthlyHeader(
                 month: monthLabel,
                 tripCount: monthly.count,
                 businessKm: businessKm, businessEur: businessEur,
-                commuteKm: commuteKm, commuteEur: commuteEur
+                commuteKm: commuteKm, commuteEur: commuteEur,
+                size: landscapeSize
             )
             var y = headerTopOffset(extra: 14)
-            drawTableHeader(titles: ownCarColumnTitles, widths: ownCarColumnWidths, at: y)
+            drawTableHeader(titles: ownCarColumnTitles, widths: ownCarColumnWidths, at: y,
+                                size: landscapeSize)
             y += headerHeight
 
             for trip in monthly {
-                if y + rowHeight > pageSize.height - margin {
+                if y + rowHeight > landscapeSize.height - margin {
                     ctx.beginPage()
                     page += 1
-                    drawPageFooter(page: page, month: monthLabel)
+                    drawPageFooter(page: page, month: monthLabel, size: landscapeSize)
                     y = margin
-                    drawTableHeader(titles: ownCarColumnTitles, widths: ownCarColumnWidths, at: y)
+                    drawTableHeader(titles: ownCarColumnTitles, widths: ownCarColumnWidths, at: y,
+                                size: landscapeSize)
                     y += headerHeight
                 }
                 drawOwnCarRow(
@@ -158,7 +168,8 @@ enum PDFReporter {
                     businessRate: businessRate,
                     commuteRate: commuteRate,
                     at: y,
-                    zebra: rowIndex.isMultiple(of: 2)
+                    zebra: rowIndex.isMultiple(of: 2),
+                    size: landscapeSize
                 )
                 y += rowHeight
                 rowIndex += 1
@@ -325,7 +336,8 @@ enum PDFReporter {
     private static func drawMonthlyHeader(
         month: String, tripCount: Int,
         businessKm: Double, businessEur: Double,
-        commuteKm: Double, commuteEur: Double
+        commuteKm: Double, commuteEur: Double,
+        size: CGSize = pageSize
     ) {
         let titleAttrs: [NSAttributedString.Key: Any] = [
             .font: UIFont.systemFont(ofSize: 22, weight: .bold),
@@ -447,12 +459,13 @@ enum PDFReporter {
         margin + 90 + extra
     }
 
-    private static func drawTableHeader(titles: [String], widths: [CGFloat], at y: CGFloat) {
+    private static func drawTableHeader(titles: [String], widths: [CGFloat], at y: CGFloat,
+                                        size: CGSize = pageSize) {
         let headerAttrs: [NSAttributedString.Key: Any] = [
             .font: UIFont.systemFont(ofSize: 10, weight: .semibold),
             .foregroundColor: UIColor.white
         ]
-        let bg = UIBezierPath(rect: CGRect(x: margin, y: y, width: pageSize.width - 2 * margin, height: headerHeight))
+        let bg = UIBezierPath(rect: CGRect(x: margin, y: y, width: size.width - 2 * margin, height: headerHeight))
         UIColor.darkGray.setFill()
         bg.fill()
 
@@ -466,11 +479,11 @@ enum PDFReporter {
     private static func drawOwnCarRow(
         trip: Trip, vehicle: Vehicle?,
         businessRate: Double, commuteRate: Double,
-        at y: CGFloat, zebra: Bool
+        at y: CGFloat, zebra: Bool, size: CGSize = pageSize
     ) {
         if zebra {
             UIColor(white: 0.95, alpha: 1).setFill()
-            UIBezierPath(rect: CGRect(x: margin, y: y, width: pageSize.width - 2 * margin, height: rowHeight)).fill()
+            UIBezierPath(rect: CGRect(x: margin, y: y, width: size.width - 2 * margin, height: rowHeight)).fill()
         }
 
         let cellAttrs: [NSAttributedString.Key: Any] = [
@@ -496,11 +509,11 @@ enum PDFReporter {
 
         let cells = [
             df.string(from: trip.startedAt),
-            truncate(vehicle?.name ?? "—", length: 12),
+            truncate(vehicle?.name ?? "—", length: 16),
             trip.type.label,
-            truncate(customerOrPurpose, length: 18),
-            truncate(trip.startAddress, length: 24),
-            truncate(trip.endAddress, length: 24),
+            truncate(customerOrPurpose, length: 30),
+            truncate(trip.startAddress, length: 38),
+            truncate(trip.endAddress, length: 38),
             si(trip.distanceKm, decimals: 1),
             eur
         ]
@@ -675,13 +688,13 @@ enum PDFReporter {
         )
     }
 
-    private static func drawPageFooter(page: Int, month: String) {
+    private static func drawPageFooter(page: Int, month: String, size: CGSize = pageSize) {
         let attrs: [NSAttributedString.Key: Any] = [
             .font: UIFont.systemFont(ofSize: 9),
             .foregroundColor: UIColor.gray
         ]
         let text = "MileLog · \(month) · page \(page)"
-        text.draw(at: CGPoint(x: margin, y: pageSize.height - margin + 8), withAttributes: attrs)
+        text.draw(at: CGPoint(x: margin, y: size.height - margin + 8), withAttributes: attrs)
     }
 
     // MARK: - Helpers -------------------------------------------------------
