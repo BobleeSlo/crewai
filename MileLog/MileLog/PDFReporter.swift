@@ -29,6 +29,24 @@ enum PDFReporter {
         let headlineKm: Double
     }
 
+    /// Slovenian number formatting: comma decimal separator, space for
+    /// thousands. The reports are filed with a Slovenian accountant, so
+    /// "1.343,1" is the readable form and "1343.1" is not.
+    private static let siNumber: NumberFormatter = {
+        let f = NumberFormatter()
+        f.locale = Locale(identifier: "sl_SI")
+        f.numberStyle = .decimal
+        f.groupingSeparator = "."
+        f.decimalSeparator = ","
+        return f
+    }()
+
+    private static func si(_ value: Double, decimals: Int) -> String {
+        siNumber.minimumFractionDigits = decimals
+        siNumber.maximumFractionDigits = decimals
+        return siNumber.string(from: NSNumber(value: value)) ?? String(format: "%.\(decimals)f", value)
+    }
+
     // MARK: - Candidate filters (callable by the selection screen) ---------
 
     /// Trips eligible for the own-car monthly reimbursement report:
@@ -71,8 +89,8 @@ enum PDFReporter {
     // MARK: - Monthly own-car report ----------------------------------------
 
     // Date · Vehicle · Type · Customer / Purpose · From · To · km · €
-    // Widths sum to ~500 — well within page width minus 2 * 36pt margin (523).
-    private static let ownCarColumnWidths: [CGFloat] = [55, 65, 55, 100, 75, 75, 35, 50]
+    // Widths sum to 523 — exactly the A4 text width at 36pt margins.
+    private static let ownCarColumnWidths: [CGFloat] = [58, 52, 48, 80, 110, 110, 32, 33]
     private static var ownCarColumnTitles: [String] {
         [
             String(localized: "Date"),
@@ -334,17 +352,16 @@ enum PDFReporter {
             withAttributes: subAttrs
         )
 
-        let summary = String(format: "%d trips · %.1f km total",
-                             tripCount, businessKm + commuteKm)
+        let summary = "\(tripCount) trips · \(si(businessKm + commuteKm, decimals: 1)) km total"
         summary.draw(at: CGPoint(x: margin, y: margin + 48), withAttributes: subAttrs)
 
-        let business = String(format: "Business · %.1f km · € %.2f", businessKm, businessEur)
+        let business = "Business · \(si(businessKm, decimals: 1)) km · \(si(businessEur, decimals: 2)) €"
         business.draw(at: CGPoint(x: margin, y: margin + 66), withAttributes: totalAttrs)
 
-        let commute = String(format: "Commute  · %.1f km · € %.2f", commuteKm, commuteEur)
+        let commute = "Commute  · \(si(commuteKm, decimals: 1)) km · \(si(commuteEur, decimals: 2)) €"
         commute.draw(at: CGPoint(x: margin, y: margin + 82), withAttributes: totalAttrs)
 
-        let total = String(format: "Total reimbursement · € %.2f", businessEur + commuteEur)
+        let total = "Total reimbursement · \(si(businessEur + commuteEur, decimals: 2)) €"
         total.draw(at: CGPoint(x: margin, y: margin + 102), withAttributes: totalAttrs)
     }
 
@@ -460,12 +477,15 @@ enum PDFReporter {
             .font: UIFont.systemFont(ofSize: 9),
             .foregroundColor: UIColor.black
         ]
+        // dd.MM.yyyy, matching the potni nalog and Slovenian convention —
+        // an ISO date on a document filed in Slovenia reads as foreign and
+        // invites 07.02 / 02.07 confusion.
         let df = DateFormatter()
-        df.dateFormat = "yyyy-MM-dd"
+        df.dateFormat = "dd.MM.yyyy"
 
-        let eur = String(format: "%.2f", trip.reimbursement(
+        let eur = si(trip.reimbursement(
             businessRate: businessRate, commuteRate: commuteRate
-        ))
+        ), decimals: 2)
 
         // Prefer customer; fall back to purpose; never show "—" inside a PDF cell.
         let customerOrPurpose: String = {
@@ -476,12 +496,12 @@ enum PDFReporter {
 
         let cells = [
             df.string(from: trip.startedAt),
-            truncate(vehicle?.name ?? "—", length: 14),
+            truncate(vehicle?.name ?? "—", length: 12),
             trip.type.label,
-            truncate(customerOrPurpose, length: 22),
-            truncate(trip.startAddress, length: 16),
-            truncate(trip.endAddress, length: 16),
-            String(format: "%.1f", trip.distanceKm),
+            truncate(customerOrPurpose, length: 18),
+            truncate(trip.startAddress, length: 24),
+            truncate(trip.endAddress, length: 24),
+            si(trip.distanceKm, decimals: 1),
             eur
         ]
 
