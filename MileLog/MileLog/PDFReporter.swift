@@ -185,10 +185,25 @@ enum PDFReporter {
     // Sobota" (confirmed against the user's own reference logbook), and
     // there's no multi-line cell support in this simple single-line-per-row
     // renderer.
-    private static let potniNalogColumnWidths: [CGFloat] = [24, 55, 250, 38, 38, 36, 60]
-    private static var potniNalogColumnTitles: [String] {
-        ["Zap.", "Datum", "Relacija od - do", "Odhod", "Prihod", "km", "Dan v tednu"]
-    }
+    // Ten columns, matching the reference workbook exactly: Odhod and
+    // Prihod each split into ura/min sub-columns under a spanning header,
+    // and a Stanje števca (odometer) column the app cannot fill — it has no
+    // way to read the car's odometer, so that column is left blank for
+    // handwriting, as the reference sheet leaves it too.
+    // Widths sum to 523 = 595pt A4 minus two 36pt margins.
+    private static let potniNalogColumnWidths: [CGFloat] =
+        [26, 54, 175, 26, 26, 26, 26, 44, 54, 66]
+
+    /// Spanning row, then the sub-labels underneath it. An empty string
+    /// means the cell above/below covers this column.
+    private static let potniNalogHeaderTop =
+        ["Zap.", "Datum", "Relacija  od - do", "Odhod", "", "Prihod", "",
+         "Prevoženi", "Stanje", "Dan v tednu"]
+    private static let potniNalogHeaderBottom =
+        ["štev:", "", "", "ura", "min", "ura", "min", "km", "števca", ""]
+
+    /// Two stacked rows rather than one.
+    private static let potniNalogHeaderHeight: CGFloat = 30
 
     /// Generates the potni nalog for the already-filtered `trips`. Caller
     /// is responsible for filtering to a single vehicle + period.
@@ -205,7 +220,6 @@ enum PDFReporter {
         else { return nil }
 
         let monthly = trips.sorted { $0.startedAt < $1.startedAt }
-        let totalKm = monthly.reduce(0) { $0 + $1.distanceKm }
         let monthLabel = monthName(year: year, month: month)
 
         var tripsByDay: [Int: [Trip]] = [:]
@@ -213,6 +227,11 @@ enum PDFReporter {
             let day = cal.component(.day, from: trip.startedAt)
             tripsByDay[day, default: []].append(trip)
         }
+        // Round per day, then total the rounded values — see drawPotniNalogRow.
+        let kmByDay = tripsByDay.mapValues { dayTrips in
+            Int(dayTrips.reduce(0) { $0 + $1.distanceKm }.rounded())
+        }
+        let totalKm = kmByDay.values.reduce(0, +)
 
         let dayFormatter = DateFormatter()
         dayFormatter.dateFormat = "dd.MM.yyyy"
@@ -221,8 +240,11 @@ enum PDFReporter {
         let weekdayFormatter = DateFormatter()
         weekdayFormatter.locale = Locale(identifier: "sl_SI")
         weekdayFormatter.dateFormat = "EEEE"
-        let timeFormatter = DateFormatter()
-        timeFormatter.dateFormat = "HH:mm"
+        // Separate ura / min columns, as in the reference workbook.
+        let hourFormatter = DateFormatter()
+        hourFormatter.dateFormat = "HH"
+        let minuteFormatter = DateFormatter()
+        minuteFormatter.dateFormat = "mm"
 
         let renderer = UIGraphicsPDFRenderer(bounds: CGRect(origin: .zero, size: pageSize))
         let data = renderer.pdfData { ctx in
@@ -231,8 +253,8 @@ enum PDFReporter {
             drawPageFooter(page: page, month: monthLabel)
             drawPotniNalogHeader(settings: settings, vehicle: vehicle, firstOfMonth: firstOfMonth)
             var y = headerTopOffset(extra: 96)
-            drawTableHeader(titles: potniNalogColumnTitles, widths: potniNalogColumnWidths, at: y)
-            y += headerHeight
+            drawPotniNalogTableHeader(at: y)
+            y += potniNalogHeaderHeight
 
             for day in 1...dayRange.count {
                 guard let date = cal.date(byAdding: .day, value: day - 1, to: firstOfMonth) else { continue }
@@ -241,13 +263,15 @@ enum PDFReporter {
                     page += 1
                     drawPageFooter(page: page, month: monthLabel)
                     y = margin
-                    drawTableHeader(titles: potniNalogColumnTitles, widths: potniNalogColumnWidths, at: y)
-                    y += headerHeight
+                    drawPotniNalogTableHeader(at: y)
+                    y += potniNalogHeaderHeight
                 }
                 let dayTrips = (tripsByDay[day] ?? []).sorted { $0.startedAt < $1.startedAt }
                 drawPotniNalogRow(
                     day: day, date: date, trips: dayTrips,
-                    dayFormatter: dayFormatter, weekdayFormatter: weekdayFormatter, timeFormatter: timeFormatter,
+                    dayKmRounded: kmByDay[day] ?? 0,
+                    dayFormatter: dayFormatter, weekdayFormatter: weekdayFormatter,
+                    hourFormatter: hourFormatter, minuteFormatter: minuteFormatter,
                     at: y, zebra: (day - 1).isMultiple(of: 2)
                 )
                 y += rowHeight
@@ -388,6 +412,15 @@ enum PDFReporter {
               x: margin, maxValueLength: 40)
         y += 16
         field("Na relaciji:", settings.tripArea.isEmpty ? placeholder : settings.tripArea, x: margin, maxValueLength: 60)
+
+        // Both present on the reference form and both left blank there:
+        // the travel-order number is assigned by bookkeeping, and the
+        // approval signature is written by hand.
+        "Štev. pot.n.:".draw(at: CGPoint(x: pageSize.width - margin - 180, y: margin + 20),
+                             withAttributes: valueAttrs)
+        "Podpis odg. osebe: \(placeholder)".draw(
+            at: CGPoint(x: pageSize.width - margin - 180, y: y + 16),
+            withAttributes: valueAttrs)
     }
 
     private static func headerTopOffset(extra: CGFloat = 0) -> CGFloat {
@@ -461,9 +494,56 @@ enum PDFReporter {
     /// join their "from - to" routes with " / " and sum into one km figure,
     /// matching the reference logbook's own convention for a day with
     /// several separate drives.
+    /// The two-row table header: "Odhod" and "Prihod" span their ura/min
+    /// pairs, everything else is a single title sitting across both rows.
+    private static func drawPotniNalogTableHeader(at y: CGFloat) {
+        let attrs: [NSAttributedString.Key: Any] = [
+            .font: UIFont.systemFont(ofSize: 8, weight: .semibold),
+            .foregroundColor: UIColor.white
+        ]
+        let width = pageSize.width - 2 * margin
+        UIColor.darkGray.setFill()
+        UIBezierPath(rect: CGRect(x: margin, y: y, width: width,
+                                  height: potniNalogHeaderHeight)).fill()
+
+        // Column edges, so spanning titles can be centred over their pair
+        // and separators drawn on the real boundaries.
+        var edges: [CGFloat] = [margin]
+        for w in potniNalogColumnWidths { edges.append(edges[edges.count - 1] + w) }
+
+        let separators = UIBezierPath()
+        for i in 1..<edges.count - 1 {
+            separators.move(to: CGPoint(x: edges[i], y: y))
+            separators.addLine(to: CGPoint(x: edges[i], y: y + potniNalogHeaderHeight))
+        }
+        UIColor(white: 1, alpha: 0.35).setStroke()
+        separators.lineWidth = 0.5
+        separators.stroke()
+
+        func centred(_ text: String, from: Int, to: Int, atY: CGFloat) {
+            guard !text.isEmpty else { return }
+            let box = CGRect(x: edges[from], y: atY,
+                             width: edges[to + 1] - edges[from], height: 12)
+            let size = (text as NSString).size(withAttributes: attrs)
+            text.draw(at: CGPoint(x: box.midX - size.width / 2, y: atY),
+                      withAttributes: attrs)
+        }
+
+        // Odhod spans columns 3-4, Prihod spans 5-6; the rest stand alone.
+        let spans: [Int: Int] = [3: 4, 5: 6]
+        for i in potniNalogHeaderTop.indices {
+            centred(potniNalogHeaderTop[i], from: i, to: spans[i] ?? i, atY: y + 4)
+        }
+        for i in potniNalogHeaderBottom.indices {
+            centred(potniNalogHeaderBottom[i], from: i, to: i, atY: y + 17)
+        }
+    }
+
     private static func drawPotniNalogRow(
         day: Int, date: Date, trips: [Trip],
-        dayFormatter: DateFormatter, weekdayFormatter: DateFormatter, timeFormatter: DateFormatter,
+        dayKmRounded: Int,
+        dayFormatter: DateFormatter, weekdayFormatter: DateFormatter,
+        hourFormatter: DateFormatter, minuteFormatter: DateFormatter,
         at y: CGFloat, zebra: Bool
     ) {
         if zebra {
@@ -482,40 +562,65 @@ enum PDFReporter {
             return "\(from) - \(to)"
         }.joined(separator: " / ")
 
-        let dayKm = trips.reduce(0) { $0 + $1.distanceKm }
         // Departure of the day's first trip, arrival of its last — the
         // reference logbook doesn't track exact times per leg on a
         // multi-trip day either, just a single departure/return pair.
-        let odhod = trips.first.map { timeFormatter.string(from: $0.startedAt) } ?? ""
+        let odhodHour = trips.first.map { hourFormatter.string(from: $0.startedAt) } ?? ""
+        let odhodMinute = trips.first.map { minuteFormatter.string(from: $0.startedAt) } ?? ""
         // Rows are grouped by startedAt's calendar day, but a trip can end
         // after midnight — printing a bare "00:15" under a row dated the
         // day before reads as arriving before departing. Flag it rather
         // than silently rendering an internally-inconsistent pair on an
         // official travel-order document (round-15 adversarial review
         // finding).
-        let prihod = trips.last.map { trip -> String in
-            let time = timeFormatter.string(from: trip.endedAt)
-            return Calendar.current.isDate(trip.endedAt, inSameDayAs: date) ? time : "\(time) (+1)"
+        let prihodHour = trips.last.map { trip -> String in
+            let hour = hourFormatter.string(from: trip.endedAt)
+            // A trip can end after midnight. Printing a bare "00" under a
+            // row dated the previous day reads as arriving before departing,
+            // so mark it rather than render an internally inconsistent pair
+            // on an official travel order (round-15 adversarial review).
+            return Calendar.current.isDate(trip.endedAt, inSameDayAs: date) ? hour : "\(hour)+"
         } ?? ""
+        let prihodMinute = trips.last.map { minuteFormatter.string(from: $0.endedAt) } ?? ""
 
+        // Whole kilometres, like the reference workbook. Rounded per day and
+        // the month total summed from these rounded values, so the printed
+        // column actually adds up to the printed total — summing the raw
+        // decimals instead leaves an official document whose figures do not
+        // reconcile when someone checks them with a calculator.
         let cells = [
             "\(day)",
             dayFormatter.string(from: date),
-            truncate(relacija, length: 55),
-            odhod,
-            prihod,
-            dayKm > 0 ? String(format: "%.1f", dayKm) : "",
+            truncate(relacija, length: 42),
+            odhodHour,
+            odhodMinute,
+            prihodHour,
+            prihodMinute,
+            dayKmRounded > 0 ? "\(dayKmRounded)" : "",
+            "",                                  // Stanje števca — handwritten
             weekdayFormatter.string(from: date)
         ]
 
-        var x = margin + 4
-        for (i, text) in cells.enumerated() {
+        // Right-align the numeric columns (index 7), centre the ura/min
+        // pairs, left-align the rest — as in the reference sheet.
+        var edges: [CGFloat] = [margin]
+        for w in potniNalogColumnWidths { edges.append(edges[edges.count - 1] + w) }
+        let centredColumns: Set<Int> = [0, 3, 4, 5, 6]
+        for (i, text) in cells.enumerated() where !text.isEmpty {
+            let size = (text as NSString).size(withAttributes: cellAttrs)
+            let x: CGFloat
+            if centredColumns.contains(i) {
+                x = (edges[i] + edges[i + 1]) / 2 - size.width / 2
+            } else if i == 7 {
+                x = edges[i + 1] - size.width - 6
+            } else {
+                x = edges[i] + 4
+            }
             text.draw(at: CGPoint(x: x, y: y + 6), withAttributes: cellAttrs)
-            x += potniNalogColumnWidths[i]
         }
     }
 
-    private static func drawPotniNalogFooter(totalKm: Double, at y: CGFloat) {
+    private static func drawPotniNalogFooter(totalKm: Int, at y: CGFloat) {
         let totalAttrs: [NSAttributedString.Key: Any] = [
             .font: UIFont.systemFont(ofSize: 11, weight: .semibold),
             .foregroundColor: UIColor.black
@@ -525,7 +630,7 @@ enum PDFReporter {
             .foregroundColor: UIColor.black
         ]
 
-        String(format: "SKUPAJ PREVOŽENIH KILOMETROV: %.1f km", totalKm)
+        String(format: "SKUPAJ PREVOŽENIH KILOMETROV : %d", totalKm)
             .draw(at: CGPoint(x: margin, y: y), withAttributes: totalAttrs)
         "Stanje km števca: _______________".draw(at: CGPoint(x: margin, y: y + 20), withAttributes: labelAttrs)
         "Razlika v km: _______________".draw(at: CGPoint(x: margin, y: y + 36), withAttributes: labelAttrs)
